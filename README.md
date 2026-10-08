@@ -176,11 +176,3 @@ Arc Calls is being built in public. Contributions, ideas, and feedback are welco
 5. Open a Pull Request
 
 ---
-
-## 📄 License
-
-MIT — see [LICENSE](LICENSE) for details.
-
----
-
-<p align="center">Built on <strong>Arc by Circle</strong> — the Economic OS for the internet.</p>
