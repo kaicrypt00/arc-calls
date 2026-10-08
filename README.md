@@ -1,4 +1,4 @@
-# Arc Calls 🔮
+# Arc Calls 
 
 > **The first community-powered prediction market built natively on [Arc by Circle](https://arc.io).**
 
