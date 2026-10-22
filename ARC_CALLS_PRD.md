@@ -16,7 +16,7 @@
 > **GitHub repository:** `https://github.com/kaicrypt00/arc-calls`
 > GitHub is already connected to Arc Studio. When you push code, it goes directly to this repo. All GitHub Actions secrets are already set — the agents will activate automatically once the workflow files are in the repo.
 >
-> **What this project is:** This is a complete rebrand and rebuild of an existing working prediction market dApp, ported from Ethereum Sepolia to Arc mainnet. The logic, pages, flows, and features are all proven and working — your job is to build the Arc-native version exactly as specified here. Do not invent new features. Do not change anything not specified. Build exactly what is written.
+> **What this project is:** Arc Calls is a new onchain prediction market platform built natively on Arc mainnet. Build it exactly as specified in this PRD. Do not invent features that are not listed here. Do not add anything not specified. Build exactly what is written.
 >
 > **When you are done reading and have no concerns — confirm you have studied the full PRD, summarize the key systems you will build, and tell me your deployment plan for the contracts. Then wait for my go-ahead before starting.**
 
@@ -1952,29 +1952,27 @@ If any random number logic exists, do not use `block.prevrandao` — it returns 
 
 ## 19. Naming Conventions
 
-Every string, label, variable name, and comment that previously said "Rialo", "RLO", "rialocalls", or "Rialo Calls" must now say "Arc", "USDC", "arc-calls", or "Arc Calls" respectively. This is a full rebrand. Do not leave any old brand name in the code.
+All naming throughout the codebase must follow these conventions exactly.
 
-**Specific substitutions:**
-- "Rialo Calls" → "Arc Calls"
-- "RLO" → "USDC"
-- "Rialo" → "Arc"
-- "rialocalls" (in URLs or keys) → "arc-calls"
-- "RialoBot" → "ArcBot"
-- "Rialo Calls Wallet" → "Arc Calls Wallet"
-- `rc_sw_` (localStorage prefix) → `ac_sw_`
-- `rc_` (any other prefix) → `ac_`
-- `rialo-symbol.png` (logo file) → `arc-logo.png` (a simple Arc-branded logo)
-- `rialo:session-wallet-ready` (custom event) → `arc:session-wallet-ready`
-- `rialo-bet-placed` (custom event) → `arc-bet-placed`
-- "Built on Rialo" → "Built on Arc"
-- "Arena" is fine to keep — it fits Arc Calls too
+**Brand name:** Arc Calls (always, everywhere)
+**Token name:** USDC (never anything else)
+**App URL slug:** arc-calls
+**Bot name:** ArcBot
+**Wallet name:** Arc Calls Wallet
+**localStorage prefix:** `ac_sw_` for session wallet keys
+**Custom event names:**
+- `arc:session-wallet-ready` — fired when session wallet is activated
+- `arc-bet-placed` — fired after a successful bet
+**Logo file:** `arc-logo.png`
+**Footer text:** "Built on Arc"
+**"Arena"** — keep this, it fits the Arc Calls brand
 
 ---
 
 ## 20. What NOT to Build
 
-- No faucet page — removed entirely. Arc Calls runs on mainnet with real USDC.
-- No RLO token — does not exist. All token references use USDC.
+- No faucet page. Arc Calls runs on mainnet with real USDC — there is nothing to claim for free.
+- No custom token other than USDC. All token references use USDC only.
 - No testnet toggle or network switching to anything other than Arc mainnet.
 - No "coming soon" pages.
 - No placeholder designs — everything shown must be functional.
