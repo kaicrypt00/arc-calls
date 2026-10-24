@@ -1,0 +1,24 @@
+name: X Resolver
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # every hour
+  workflow_dispatch:
+
+jobs:
+  resolver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+        working-directory: ./agents
+      - run: node x-resolver.js
+        working-directory: ./agents
+        env:
+          RESOLVER_ADMIN_KEY: ${{ secrets.RESOLVER_ADMIN_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          BETTING_POOL_ADDRESS: ${{ secrets.BETTING_POOL_ADDRESS }}
