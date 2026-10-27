@@ -120,7 +120,7 @@ export function SoundProvider({ children }: { children: ReactNode }) {
         await bgAudioRef.current.play()
         setIsPlaying(true)
       } catch {
-        const onFirstInteraction = async () => {
+        const onFirstInteraction = () => {
           window.removeEventListener('pointerdown', onFirstInteraction)
           window.removeEventListener('keydown', onFirstInteraction)
           const stillOn = localStorage.getItem('arc_sound_enabled') !== 'false'

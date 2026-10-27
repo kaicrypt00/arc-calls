@@ -11,26 +11,25 @@ export default function LandingPage() {
   const [totalCallers, setTotalCallers] = useState<number>(0)
 
   useEffect(() => {
+    async function fetchStats() {
+      try {
+        const [{ count: markets }, { count: callers }] = await Promise.all([
+          supabase
+            .from('predictions_display')
+            .select('*', { count: 'exact', head: true })
+            .in('status', ['open', 'locked']),
+          supabase
+            .from('leaderboard')
+            .select('*', { count: 'exact', head: true }),
+        ])
+        setActiveMarkets(markets ?? 0)
+        setTotalCallers(callers ?? 0)
+      } catch {
+        // silent
+      }
+    }
     fetchStats()
   }, [])
-
-  async function fetchStats() {
-    try {
-      const [{ count: markets }, { count: callers }] = await Promise.all([
-        supabase
-          .from('predictions_display')
-          .select('*', { count: 'exact', head: true })
-          .in('status', ['open', 'locked']),
-        supabase
-          .from('leaderboard')
-          .select('*', { count: 'exact', head: true }),
-      ])
-      setActiveMarkets(markets ?? 0)
-      setTotalCallers(callers ?? 0)
-    } catch (e) {
-      // silent
-    }
-  }
 
   return (
     <div style={{

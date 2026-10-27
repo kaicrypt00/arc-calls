@@ -125,11 +125,11 @@ function SessionWalletDropdown() {
     setSending(true)
     showPending(`Sending ${sendAmount} USDC...`)
     try {
-      const txHash = await sendUSDC(sendTo as `0x${string}`, sendAmount)
+      const txHash = await sendUSDC(sendTo, sendAmount)
       showConfirmed(txHash, `Sent ${sendAmount} USDC`)
 
       supabase.from('wallet_transactions').insert({
-        wallet_address: sessionWallet.address.toLowerCase(),
+        wallet_address: (sessionWallet?.address ?? '').toLowerCase(),
         type: 'withdrawal',
         label: `Withdrew ${sendAmount} USDC to ${truncateAddress(sendTo)}`,
         tx_hash: txHash,
