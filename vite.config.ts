@@ -5,6 +5,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
 export default defineConfig({
   plugins: [react(), nodePolyfills()],
+  cacheDir: 'node_modules/.vite',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

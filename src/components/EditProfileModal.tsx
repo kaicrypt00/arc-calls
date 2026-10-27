@@ -33,7 +33,7 @@ export default function EditProfileModal({ isOpen, onClose, initialName, initial
   const [name, setName] = useState(initialName)
   const [bio, setBio] = useState(initialBio)
   const [x, setX] = useState(initialX)
-  const [pfpUrl, setPfpUrl] = useState(initialPfpUrl)
+  const [pfpUrl, _setPfpUrl] = useState(initialPfpUrl)
   const [pfpFile, setPfpFile] = useState<File | null>(null)
   const [pfpPreview, setPfpPreview] = useState(initialPfpUrl)
   const [saving, setSaving] = useState(false)

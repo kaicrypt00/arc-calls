@@ -22,6 +22,7 @@ export default function MintProfileModal() {
   const [submitting, setSubmitting] = useState(false)
   const [step, setStep] = useState<'form' | 'success'>('form')
   const [txHash, setTxHash] = useState('')
+  const [walletBalance, setWalletBalance] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Auto-close after 3 seconds on success
@@ -31,6 +32,17 @@ export default function MintProfileModal() {
       return () => clearTimeout(t)
     }
   }, [step, setShowMintModal])
+
+  // Check session wallet USDC balance when modal opens
+  useEffect(() => {
+    if (!sessionWallet || !showMintModal) return
+    publicClient.getBalance({ address: sessionWallet.address }).then(bal => {
+      // Arc native balance is USDC in 18 decimals — convert to 6-decimal display
+      const usdc6 = bal / 10n ** 12n // 18dec → 6dec
+      const formatted = (Number(usdc6) / 1_000_000).toFixed(4)
+      setWalletBalance(formatted)
+    }).catch(() => setWalletBalance(null))
+  }, [sessionWallet, showMintModal])
 
   if (!showMintModal) return null
 
@@ -54,6 +66,22 @@ export default function MintProfileModal() {
 
     const cleanX = xUsername.replace('@', '').trim().slice(0, 15)
     setSubmitting(true)
+    showPending('Checking wallet balance...')
+
+    // Pre-flight: check session wallet has enough USDC to cover gas
+    try {
+      const nativeBal = await publicClient.getBalance({ address: sessionWallet.address })
+      // On Arc, native balance IS USDC in 18-decimal units. Minimum ~0.01 USDC native = 10^16
+      const MIN_GAS_BALANCE = 10_000_000_000_000n // ~0.00001 USDC in 18-dec (very small, just confirms non-zero)
+      if (nativeBal < MIN_GAS_BALANCE) {
+        showFailed(`Your Arc Calls wallet needs USDC for gas. Fund: ${sessionWallet.address.slice(0, 10)}...`)
+        setSubmitting(false)
+        return
+      }
+    } catch {
+      // If balance check fails, proceed anyway and let the tx fail naturally
+    }
+
     showPending('Minting profile...')
 
     try {
@@ -219,9 +247,42 @@ export default function MintProfileModal() {
                 </div>
               </div>
 
+              {/* Session wallet balance / funding notice */}
+              {sessionWallet && (
+                <div style={{
+                  background: parseFloat(walletBalance ?? '0') < 0.001 ? 'rgba(255,180,0,0.08)' : 'rgba(90,138,176,0.08)',
+                  border: `1px solid ${parseFloat(walletBalance ?? '0') < 0.001 ? 'rgba(255,180,0,0.3)' : 'rgba(90,138,176,0.2)'}`,
+                  borderRadius: 10, padding: '10px 14px', fontSize: 12,
+                }}>
+                  {parseFloat(walletBalance ?? '0') < 0.001 ? (
+                    <>
+                      <div style={{ fontWeight: 600, color: '#f5c842', marginBottom: 4 }}>⚠ Fund your Arc Calls wallet to pay gas</div>
+                      <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
+                        Send a small amount of USDC to your Arc Calls wallet on Arc Mainnet:
+                      </div>
+                      <div style={{
+                        fontFamily: 'monospace', fontSize: 11, background: 'rgba(0,0,0,0.3)',
+                        borderRadius: 6, padding: '6px 10px', wordBreak: 'break-all',
+                        color: 'var(--text-primary)', userSelect: 'all',
+                      }}>
+                        {sessionWallet.address}
+                      </div>
+                      <div style={{ color: 'var(--text-tertiary)', fontSize: 11, marginTop: 4 }}>
+                        Current balance: {walletBalance ?? '0.0000'} USDC
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Arc Calls wallet balance</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{walletBalance} USDC</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button
                 type="submit"
-                disabled={submitting || !name.trim() || !xUsername.trim()}
+                disabled={submitting || !name.trim() || !xUsername.trim() || parseFloat(walletBalance ?? '0') < 0.001}
                 className="btn-primary"
                 style={{ padding: '12px 20px', fontSize: 14, fontWeight: 700, marginTop: 4 }}
               >
