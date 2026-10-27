@@ -7,6 +7,7 @@ import PredictionCard from '../components/PredictionCard'
 import PollTab from '../components/PollTab'
 import SettledTab from '../components/SettledTab'
 import ErrorBoundary from '../components/ErrorBoundary'
+import SoundToggleButton from '../components/SoundToggleButton'
 
 type Tab = 'all_calls' | 'community_calls' | 'official_calls' | 'settled' | 'polls'
 
@@ -102,23 +103,15 @@ export default function CallsPage() {
   const hasMore = filteredPredictions.length > visibleCount
 
   return (
-    <>
-      {/* Fixed elements — outside the flow */}
+    <div className="page" style={{ position: 'relative', zIndex: 1, minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <Navbar />
 
-      {/* Page wrapper — starts below fixed navbar */}
-      <div style={{
-        minHeight: '100dvh',
-        display: 'flex',
-        flexDirection: 'column',
-        paddingTop: 'var(--nav-height)',
-      }}>
-        {/* Ticker is inline — sits just below navbar */}
-        <Ticker />
+      {/* Ticker is inline — sits just below navbar */}
+      <Ticker />
 
-        {/* Main content */}
-        <div style={{ flex: 1, padding: '28px 0 64px' }}>
-          <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px' }}>
+      {/* Main content */}
+      <main style={{ flex: 1, padding: '20px 0 64px', width: '100%' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px' }}>
 
             {/* Heading row */}
             <div style={{
@@ -126,31 +119,14 @@ export default function CallsPage() {
               marginBottom: 20, flexWrap: 'wrap', gap: 10,
             }}>
               <h1 style={{
-                fontSize: 26, fontWeight: 800,
+                fontSize: 'clamp(2rem, 4vw, 2.8rem)', fontWeight: 800,
                 fontFamily: 'var(--font-display)',
                 letterSpacing: '-0.5px', margin: 0,
                 color: 'var(--text-primary)',
               }}>
                 {HEADINGS[tab]}
               </h1>
-              {tab !== 'settled' && tab !== 'polls' && !isLoading && (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '5px 14px',
-                  background: 'rgba(74,222,128,0.08)',
-                  border: '1px solid rgba(74,222,128,0.25)',
-                  borderRadius: 20,
-                }}>
-                  <span style={{
-                    width: 7, height: 7, borderRadius: '50%',
-                    background: '#4ade80', display: 'inline-block',
-                    animation: 'pulse-dot 1.8s ease infinite',
-                  }} />
-                  <span style={{ fontSize: 12, color: '#4ade80', fontWeight: 700, letterSpacing: '0.04em' }}>
-                    {filteredPredictions.length} LIVE
-                  </span>
-                </div>
-              )}
+              <SoundToggleButton />
             </div>
 
             {/* ── Tab bar — pill style matching Rialo ── */}
@@ -210,23 +186,31 @@ export default function CallsPage() {
               </div>
 
             ) : filteredPredictions.length === 0 ? (
-              /* Empty state */
-              <div style={{ textAlign: 'center', padding: '80px 24px', color: 'rgba(180,191,201,0.6)' }}>
-                <div style={{ fontSize: 44, marginBottom: 16 }}>🔥</div>
-                <div style={{ fontSize: 18, fontWeight: 600, color: 'rgba(228,232,236,0.7)', marginBottom: 8 }}>
-                  No {tab === 'community_calls' ? 'Community' : tab === 'official_calls' ? 'Official' : 'Active'} Calls right now
+              /* Empty state matching Rialo Calls */
+              <div className="glass-card" style={{
+                textAlign: 'center',
+                padding: '80px 24px',
+                borderRadius: 24,
+              }}>
+                <div style={{ fontSize: 64, marginBottom: 24, opacity: 0.6 }}>
+                  🎯
                 </div>
-                <div style={{ fontSize: 13, color: 'rgba(142,159,176,0.5)', marginBottom: 6 }}>
-                  {predictions !== null && predictions.length > 0
-                    ? `${predictions.length} total prediction(s) — check the Settled tab.`
-                    : 'No predictions found in Supabase. Open the Admin panel to create the first call.'}
-                </div>
-                <button
-                  onClick={fetchPredictions}
-                  style={{ marginTop: 16, padding: '8px 24px', background: 'rgba(54,97,132,0.15)', border: '1px solid rgba(54,97,132,0.35)', borderRadius: 8, color: '#e4e8ec', fontSize: 13, cursor: 'pointer' }}
-                >
-                  Refresh
-                </button>
+                <h3 style={{
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 22,
+                  fontWeight: 700,
+                  marginBottom: 12,
+                  color: 'var(--text-primary)',
+                }}>
+                  No active calls
+                </h3>
+                <p style={{
+                  color: 'var(--text-secondary)',
+                  fontSize: 15,
+                  margin: 0,
+                }}>
+                   No open predictions in this category yet.
+                 </p>
               </div>
 
             ) : (
@@ -258,10 +242,9 @@ export default function CallsPage() {
               </>
             )}
           </div>
-        </div>
+        </main>
 
         <Footer />
-      </div>
-    </>
+    </div>
   )
 }

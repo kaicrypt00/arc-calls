@@ -75,7 +75,7 @@ export default function ParticleBackground() {
           { duration: dur, delay, iterations: Infinity, easing: 'ease-in-out' }
         )
 
-        container.appendChild(el)
+        container?.appendChild(el)
         particles.push(el)
       }
     }

@@ -246,9 +246,10 @@ export default function AdminPage() {
   const settledPreds = predictions.filter(p => ['yes_wins','no_wins','refunded'].includes(p.status))
 
   return (
-    <div className="page" style={{ position: 'relative', zIndex: 1 }}>
+    <div className="page" style={{ position: 'relative', zIndex: 1, minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <Navbar />
-      <div className="container" style={{ padding: '32px 20px', maxWidth: 1280 }}>
+      <main style={{ flex: 1, width: '100%' }}>
+        <div className="container" style={{ padding: '32px 20px 80px', maxWidth: 1280 }}>
 
         {/* Header */}
         <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -537,8 +538,8 @@ export default function AdminPage() {
             </div>
           </div>
         )}
-
-      </div>
+        </div>
+      </main>
       <Footer />
     </div>
   )

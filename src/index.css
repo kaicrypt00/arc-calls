@@ -178,8 +178,8 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
   pointer-events: none;
 }
 .stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 28px rgba(0,0,0,0.3), 0 0 16px rgba(54,97,132,0.15);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 24px rgba(54,97,132,0.25), 0 0 20px rgba(90,138,176,0.2), 0 0 1px rgba(168,204,232,0.3);
 }
 
 /* ── Skeleton ───────────────────────────────────────────────────────────── */
@@ -254,7 +254,7 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
 }
 
 /* ── Page container ─────────────────────────────────────────────────────── */
-.page { min-height: 100dvh; padding-top: var(--nav-height); position: relative; z-index: 1; }
+.page { min-height: 100dvh; display: flex; flex-direction: column; position: relative; z-index: 1; }
 
 /* ── Container ──────────────────────────────────────────────────────────── */
 .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
@@ -489,14 +489,14 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
 
 /* ── Nav link hover underline ─────────────────────────────────────────── */
 .nav-link-item {
-  position: relative; padding: 6px 14px; border-radius: 8px;
-  font-size: 13px; font-weight: 500; text-decoration: none;
+  position: relative; padding: 8px 16px; border-radius: 8px;
+  font-size: 15px; font-weight: 500; text-decoration: none;
   white-space: nowrap; color: var(--text-secondary);
   transition: color 150ms ease, background 150ms ease;
   display: inline-block;
 }
 .nav-link-item::after {
-  content: ''; position: absolute; bottom: 2px; left: 14px; right: 14px;
+  content: ''; position: absolute; bottom: 2px; left: 16px; right: 16px;
   height: 2px; background: var(--accent-bright); border-radius: 1px;
   transform: scaleX(0); transform-origin: center;
   transition: transform 200ms ease;
@@ -839,7 +839,12 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
 
 /* ── Network banner ──────────────────────────────────────────────────────── */
 .network-banner {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+  position: sticky;
+  top: var(--nav-height);
+  left: 0;
+  right: 0;
+  z-index: 99;
+  width: 100%;
   background: rgba(239, 68, 68, 0.12);
   border-bottom: 1px solid rgba(239, 68, 68, 0.3);
   padding: 8px 16px;
@@ -935,25 +940,29 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
   cursor: pointer;
   text-decoration: none;
   transition: opacity 150ms ease;
+  outline: none;
+  border: none;
+  background: transparent;
+  user-select: none;
 }
 .navbar-logo:hover { opacity: 0.85; }
 .navbar-logo-icon {
-  width: 30px; height: 30px;
+  width: 32px; height: 32px;
   border-radius: 8px;
-  background: rgba(54, 97, 132, 0.2);
+  background: transparent;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0; overflow: hidden;
 }
 .navbar-logo-text {
-  font-family: var(--font-display);
-  font-size: 17px; font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.3px;
+  font-family: var(--font-display, "Space Grotesk", sans-serif);
+  font-size: 18px; font-weight: 700;
+  color: var(--text-primary, #E4E8EC);
+  letter-spacing: -0.5px;
 }
 .navbar-center {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
@@ -962,8 +971,8 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
   background: none; border: none;
   color: var(--text-secondary);
   font-family: 'Inter', sans-serif;
-  font-size: 14px; font-weight: 500;
-  padding: 7px 14px;
+  font-size: 15px; font-weight: 500;
+  padding: 8px 16px;
   cursor: pointer;
   position: relative;
   transition: color 150ms ease, background 150ms ease;
@@ -1370,7 +1379,7 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
   50% { height: 12px; }
 }
 
-/* -- RainbowKit overrides (Arc Theme � mirrors Rialo styling) -- */
+/* -- RainbowKit overrides (Arc Theme � mirrors Rialo styling) -- */
 [data-rk] {
   --rk-colors-accentColor: #5a8ab0;
   --rk-colors-accentColorForeground: #ffffff;
@@ -1398,7 +1407,7 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
   transform: translateY(-1px) !important;
 }
 
-/* -- Navbar sweep glow � persistent below header (Arc electric-blue theme) -- */
+/* -- Navbar sweep glow � persistent below header (Arc electric-blue theme) -- */
 @keyframes navbar-sweep {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(400%); }

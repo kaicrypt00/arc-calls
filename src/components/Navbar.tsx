@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAccount, useSwitchChain } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
@@ -10,173 +10,516 @@ import { supabase, type DbWalletTransaction } from '../lib/supabase'
 import { ADMIN_WALLETS, ARC_CHAIN_ID } from '../constants'
 import { timeAgo } from '../utils/format'
 import ArcLogo from './ArcLogo'
-import SoundToggleButton from './SoundToggleButton'
+
+const TX_TYPE_ICON: Record<string, string> = {
+  bet: '🎯',
+  claim: '🏆',
+  refund: '↩',
+  poll_submit: '💡',
+  vote: '🗳',
+  deposit: '⬇️',
+  withdrawal: '⬆️',
+  profile_creation: '👤',
+  faucet: '💧',
+  admin_action: '⚙',
+}
+
+function truncateAddress(addr: string) {
+  if (!addr) return ''
+  return addr.slice(0, 6) + '...' + addr.slice(-4)
+}
 
 /* ─── Session Wallet Dropdown ──────────────────────────────────────────── */
 function SessionWalletDropdown() {
-  const { sessionWallet, usdcBalance, isLoadingBalances, loadBalances, sendUSDC } = useSessionWallet()
+  const { sessionWallet, usdcBalance, loadBalances, sendUSDC } = useSessionWallet()
   const { showPending, showConfirmed, showFailed } = useToast()
   const [open, setOpen] = useState(false)
-  const [sendOpen, setSendOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [showSend, setShowSend] = useState(false)
   const [sendTo, setSendTo] = useState('')
-  const [sendAmt, setSendAmt] = useState('')
+  const [sendAmount, setSendAmount] = useState('')
+  const [sendError, setSendError] = useState('')
   const [sending, setSending] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [txHistory, setTxHistory] = useState<DbWalletTransaction[]>([])
+  const [showAll, setShowAll] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const h = (e: MouseEvent) => { if (dropRef.current && !dropRef.current.contains(e.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [])
-
-  useEffect(() => {
-    if (!sessionWallet || !open) return
-    supabase.from('wallet_transactions')
+  const loadRecentTxs = useCallback(async () => {
+    if (!sessionWallet) return
+    const { data } = await supabase
+      .from('wallet_transactions')
       .select('*')
       .eq('wallet_address', sessionWallet.address.toLowerCase())
       .order('created_at', { ascending: false })
       .limit(10)
-      .then(({ data }) => { if (data) setTxHistory(data as DbWalletTransaction[]) })
-  }, [open, sessionWallet])
+    if (data) setTxHistory(data as DbWalletTransaction[])
+  }, [sessionWallet])
 
-  if (!sessionWallet) return null
+  // Click outside to close
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node)) {
+        setOpen(false)
+        setShowSend(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
-  const handleSend = async () => {
-    if (!isAddress(sendTo) || !sendAmt || parseFloat(sendAmt) <= 0) { showFailed('Invalid address or amount'); return }
-    setSending(true)
-    showPending('Sending USDC…')
+  // Load balances and recent txs on open
+  useEffect(() => {
+    if (open && sessionWallet) {
+      loadBalances()
+      loadRecentTxs()
+    }
+  }, [open, sessionWallet, loadBalances, loadRecentTxs])
+
+  // Auto-refresh: load on mount/connect, then background interval every 15s without flicker
+  useEffect(() => {
+    if (!sessionWallet) return
+    loadBalances()
+    const interval = setInterval(() => {
+      loadBalances()
+    }, 15000)
+    return () => clearInterval(interval)
+  }, [sessionWallet, loadBalances])
+
+  const handleRefresh = async () => {
+    if (refreshing || !sessionWallet) return
+    setRefreshing(true)
     try {
-      const hash = await sendUSDC(sendTo, sendAmt)
-      showConfirmed(hash, `Sent ${sendAmt} USDC`)
-      setSendTo(''); setSendAmt(''); setSendOpen(false)
+      await Promise.all([loadBalances(), loadRecentTxs()])
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const copyAddress = () => {
+    if (!sessionWallet) return
+    navigator.clipboard.writeText(sessionWallet.address)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSendError('')
+
+    if (!isAddress(sendTo)) {
+      setSendError('Invalid address')
+      return
+    }
+    const amt = parseFloat(sendAmount)
+    if (isNaN(amt) || amt <= 0) {
+      setSendError('Enter a valid amount')
+      return
+    }
+    const bal = parseFloat(usdcBalance)
+    if (amt > bal) {
+      setSendError('Insufficient balance')
+      return
+    }
+
+    setSending(true)
+    showPending(`Sending ${sendAmount} USDC...`)
+    try {
+      const txHash = await sendUSDC(sendTo as `0x${string}`, sendAmount)
+      showConfirmed(txHash, `Sent ${sendAmount} USDC`)
+
+      supabase.from('wallet_transactions').insert({
+        wallet_address: sessionWallet.address.toLowerCase(),
+        type: 'withdrawal',
+        label: `Withdrew ${sendAmount} USDC to ${truncateAddress(sendTo)}`,
+        tx_hash: txHash,
+        amount: amt,
+      }).then(() => {
+        loadRecentTxs()
+      })
+
+      setSendTo('')
+      setSendAmount('')
+      setShowSend(false)
+      await loadBalances()
     } catch (e) {
-      showFailed((e as Error).message?.slice(0, 80) ?? 'Send failed')
+      const msg = (e as Error).message?.slice(0, 80) ?? 'Send failed'
+      showFailed(msg)
+      setSendError(msg)
     } finally {
       setSending(false)
     }
   }
 
+  if (!sessionWallet) return null
+
+  const displayedTxs = showAll ? txHistory : txHistory.slice(0, 5)
+
   return (
     <div style={{ position: 'relative' }} ref={dropRef}>
-      {/* Pill trigger */}
+      {/* ── Navbar trigger pill ── */}
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => { setOpen(v => !v); if (open) setShowSend(false) }}
         style={{
-          display: 'flex', alignItems: 'center', gap: 7,
-          background: 'rgba(6,42,81,0.85)', border: '1px solid var(--border-default)',
-          borderRadius: 20, padding: '6px 12px 6px 10px', cursor: 'pointer',
-          color: 'var(--text-primary)', fontSize: 13, fontWeight: 600,
-          transition: 'border-color 150ms', minWidth: 100,
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: open ? 'rgba(6,42,81,0.95)' : 'rgba(6,42,81,0.85)',
+          border: `1px solid ${open ? 'var(--accent-bright)' : 'var(--border-default)'}`,
+          borderRadius: 10, padding: '7px 14px', cursor: 'pointer',
+          color: 'var(--text-primary)', fontSize: 13,
+          fontWeight: 500, transition: 'all 0.2s ease',
+          backdropFilter: 'blur(12px)',
+          boxShadow: open ? '0 0 16px var(--accent-glow)' : 'none',
         }}
-        onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent-bright)')}
-        onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-default)')}
+        onMouseEnter={e => {
+          if (!open) {
+            e.currentTarget.style.borderColor = 'var(--accent-bright)'
+            e.currentTarget.style.background = 'rgba(6,42,81,0.95)'
+          }
+        }}
+        onMouseLeave={e => {
+          if (!open) {
+            e.currentTarget.style.borderColor = 'var(--border-default)'
+            e.currentTarget.style.background = 'rgba(6,42,81,0.85)'
+          }
+        }}
       >
-        <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--yes-color)', flexShrink: 0 }} />
-        <span className="mono" style={{ fontSize: 13 }}>{isLoadingBalances ? '…' : usdcBalance}</span>
-        <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>USDC</span>
-        <span style={{ color: 'var(--text-tertiary)', fontSize: 9, marginLeft: 2 }}>{open ? '▴' : '▾'}</span>
+        <span style={{
+          width: 7, height: 7, borderRadius: '50%', background: 'var(--yes-color)',
+          boxShadow: '0 0 6px rgba(74,222,128,0.7)', flexShrink: 0, display: 'inline-block',
+        }} />
+        <span className="mono" style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+          {usdcBalance}
+        </span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, letterSpacing: '0.06em' }}>
+          USDC
+        </span>
+        <svg
+          width="10" height="10" viewBox="0 0 10 10" fill="none"
+          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', marginLeft: 2, opacity: 0.6 }}
+        >
+          <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </button>
 
-      {/* Dropdown panel */}
+      {/* ── Dropdown panel ── */}
       {open && (
         <div style={{
           position: 'absolute', top: 'calc(100% + 10px)', right: 0,
-          width: 300, background: 'rgba(4,20,52,0.98)', border: '1px solid var(--border-default)',
-          borderRadius: 16, padding: 16, zIndex: 1000, backdropFilter: 'blur(24px)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+          width: 300,
+          background: 'rgba(4,20,52,0.98)',
+          backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)',
+          border: '1px solid var(--border-default)', borderRadius: 16, zIndex: 1000,
+          boxShadow: '0 24px 64px rgba(0,0,0,0.7), 0 0 0 1px rgba(90, 138, 176, 0.08)',
+          overflow: 'hidden', animation: 'rcw-drop-in 0.18s ease',
         }}>
-          {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Arc Calls Wallet</div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>Session wallet · Arc Mainnet</div>
-            </div>
-            <button onClick={loadBalances} title="Refresh balance"
-              style={{ background: 'none', color: 'var(--text-secondary)', fontSize: 16, padding: 4, cursor: 'pointer', lineHeight: 1 }}>↻</button>
-          </div>
 
-          {/* Balance hero */}
+          {/* Top accent line */}
           <div style={{
-            padding: '14px 16px', borderRadius: 12, marginBottom: 12,
-            background: 'linear-gradient(135deg, rgba(6,42,81,0.8), rgba(54,97,132,0.2))',
-            border: '1px solid var(--border-subtle)',
-          }}>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Balance</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span className="mono" style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)' }}>
-                {isLoadingBalances ? '…' : usdcBalance}
-              </span>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>USDC</span>
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 3 }}>Gas &amp; Betting · Arc Mainnet</div>
-          </div>
+            height: 2,
+            background: 'linear-gradient(90deg, transparent, rgba(90,138,176,0.4) 40%, rgba(90,138,176,0.8) 70%, transparent)',
+          }} />
 
-          {/* Address row */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
-            padding: '9px 12px', background: 'var(--bg-glass)', borderRadius: 10,
-          }}>
-            <span className="mono" style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {sessionWallet.address}
-            </span>
-            <button
-              onClick={() => { navigator.clipboard.writeText(sessionWallet.address); }}
-              style={{ background: 'none', color: 'var(--accent-bright)', fontSize: 11, padding: '2px 6px', border: '1px solid var(--border-subtle)', borderRadius: 4, cursor: 'pointer', flexShrink: 0 }}>
-              Copy
-            </button>
-          </div>
+          <div style={{ padding: '18px 18px 16px' }}>
 
-          {/* Deposit info */}
-          <div style={{ padding: '10px 12px', background: 'rgba(54,97,132,0.12)', borderRadius: 10, marginBottom: 12, border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 3 }}>Deposit USDC to this wallet</div>
-            <div className="mono" style={{ fontSize: 10, color: 'var(--text-primary)', wordBreak: 'break-all', lineHeight: 1.5 }}>{sessionWallet.address}</div>
-            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 3 }}>Send USDC on Arc Mainnet only</div>
-          </div>
-
-          {/* Send toggle */}
-          <button
-            onClick={() => setSendOpen(o => !o)}
-            style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', marginBottom: sendOpen ? 8 : 0 }}>
-            {sendOpen ? '✕ Close Send' : '↗ Send USDC'}
-          </button>
-
-          {sendOpen && (
-            <div style={{ padding: 12, background: 'var(--bg-glass)', borderRadius: 10, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <input placeholder="Recipient 0x…" value={sendTo} onChange={e => setSendTo(e.target.value)} style={{ fontSize: 12 }} />
-              <input type="number" placeholder="Amount USDC" value={sendAmt} onChange={e => setSendAmt(e.target.value)} min="0.1" step="0.1" style={{ fontSize: 12 }} />
-              <button onClick={handleSend} disabled={sending} className="btn-primary" style={{ fontSize: 12, padding: '8px 12px' }}>
-                {sending ? 'Sending…' : 'Send'}
+            {/* ── 1. Header Row ── */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              marginBottom: 10,
+            }}>
+              <div style={{
+                fontSize: 10, fontWeight: 600, letterSpacing: '0.14em',
+                textTransform: 'uppercase', color: 'rgba(142, 159, 176, 0.7)',
+                fontFamily: 'inherit',
+              }}>
+                ARC CALLS WALLET
+              </div>
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                title="Refresh balances"
+                style={{
+                  background: 'none', border: 'none', padding: 4,
+                  cursor: refreshing ? 'default' : 'pointer',
+                  color: 'rgba(142, 159, 176, 0.6)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  borderRadius: 5, transition: 'color 0.2s',
+                }}
+                onMouseEnter={e => { if (!refreshing) e.currentTarget.style.color = 'var(--text-primary)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'rgba(142, 159, 176, 0.6)' }}
+              >
+                <svg
+                  width="11" height="11" viewBox="0 0 24 24" fill="none"
+                  style={{
+                    animation: refreshing ? 'rcw-spin 0.8s linear infinite' : 'none',
+                    transition: 'opacity 0.2s',
+                  }}
+                >
+                  <path d="M21 12a9 9 0 01-9 9c-2.76 0-5.23-1.24-6.92-3.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <path d="M3 12a9 9 0 019-9c2.76 0 5.23 1.24 6.92 3.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <path d="M21 3v4h-4M3 21v-4h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </button>
             </div>
-          )}
 
-          {/* Recent Activity */}
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Recent Activity</div>
-            {txHistory.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', padding: '8px 0' }}>No activity yet</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {txHistory.map(tx => (
-                  <div key={tx.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: '1px solid rgba(54,97,132,0.08)' }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: tx.type === 'bet' ? 'var(--accent-bright)' : '#4ade80', flexShrink: 0, marginTop: 4 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.label}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 1 }}>{timeAgo(tx.created_at)}</div>
-                    </div>
-                    <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', flexShrink: 0 }}>
-                      {Number(tx.amount).toFixed(2)}
-                    </div>
+            {/* ── 2. Address Row: address + copy + send ── */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'rgba(6, 42, 81, 0.35)',
+              border: '1px solid var(--border-default)',
+              borderRadius: 9, padding: '9px 10px',
+              marginBottom: 12,
+            }}>
+              <span style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: 'var(--yes-color)', boxShadow: '0 0 5px rgba(74,222,128,0.55)',
+                display: 'inline-block', flexShrink: 0,
+              }} />
+              <span style={{
+                fontFamily: 'JetBrains Mono, monospace', fontSize: 12,
+                color: 'var(--text-primary)', flex: 1,
+              }}>
+                {truncateAddress(sessionWallet.address)}
+              </span>
+              <button
+                onClick={copyAddress}
+                style={{
+                  background: copied ? 'rgba(74,222,128,0.12)' : 'rgba(228, 232, 236, 0.06)',
+                  border: `1px solid ${copied ? 'rgba(74,222,128,0.3)' : 'var(--border-subtle)'}`,
+                  borderRadius: 5, padding: '3px 8px',
+                  color: copied ? 'var(--yes-color)' : 'var(--text-secondary)',
+                  cursor: 'pointer', fontSize: 10, fontWeight: 600,
+                  fontFamily: 'inherit', transition: 'all 0.2s ease',
+                }}
+              >
+                {copied ? '✓' : 'Copy'}
+              </button>
+              <div style={{ width: 1, height: 14, background: 'var(--border-subtle)' }} />
+              <button
+                onClick={() => setShowSend(v => !v)}
+                style={{
+                  background: showSend ? 'rgba(90, 138, 176, 0.2)' : 'rgba(228, 232, 236, 0.06)',
+                  border: `1px solid ${showSend ? 'var(--accent-bright)' : 'var(--border-subtle)'}`,
+                  borderRadius: 5, padding: '3px 8px',
+                  color: showSend ? 'var(--accent-bright)' : 'var(--text-secondary)',
+                  cursor: 'pointer', fontSize: 10, fontWeight: 600,
+                  fontFamily: 'inherit', transition: 'all 0.2s ease',
+                  display: 'flex', alignItems: 'center', gap: 3,
+                }}
+              >
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Send
+              </button>
+            </div>
+
+            {/* ── 4. Expandable Send Panel ── */}
+            {showSend && (
+              <form onSubmit={handleSend} style={{ marginBottom: 12 }}>
+                <div style={{
+                  background: 'rgba(6, 42, 81, 0.45)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 10, padding: 12,
+                }}>
+                  <div style={{
+                    fontSize: 10, fontWeight: 600, letterSpacing: '0.12em',
+                    textTransform: 'uppercase', color: 'var(--accent-bright)',
+                    marginBottom: 10,
+                  }}>
+                    SEND USDC · ARC MAINNET
                   </div>
-                ))}
-              </div>
+                  <input
+                    type="text"
+                    value={sendTo}
+                    onChange={e => { setSendTo(e.target.value); setSendError('') }}
+                    placeholder="Recipient address 0x..."
+                    style={{
+                      width: '100%', background: 'rgba(1, 13, 31, 0.75)',
+                      border: '1px solid var(--border-default)', borderRadius: 7,
+                      padding: '8px 10px', color: 'var(--text-primary)', fontSize: 11,
+                      outline: 'none', boxSizing: 'border-box',
+                      fontFamily: 'JetBrains Mono, monospace', marginBottom: 6,
+                    }}
+                  />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      type="number"
+                      value={sendAmount}
+                      onChange={e => { setSendAmount(e.target.value); setSendError('') }}
+                      placeholder="Amount USDC"
+                      step="0.01" min="0.01"
+                      style={{
+                        flex: 1, background: 'rgba(1, 13, 31, 0.75)',
+                        border: '1px solid var(--border-default)', borderRadius: 7,
+                        padding: '8px 10px', color: 'var(--text-primary)', fontSize: 11,
+                        outline: 'none', boxSizing: 'border-box',
+                        fontFamily: 'JetBrains Mono, monospace',
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      disabled={sending}
+                      style={{
+                        background: 'rgba(90, 138, 176, 0.25)',
+                        border: '1px solid var(--accent-bright)',
+                        borderRadius: 7, padding: '8px 14px',
+                        color: sending ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                        cursor: sending ? 'not-allowed' : 'pointer',
+                        fontSize: 11, fontWeight: 700,
+                        fontFamily: 'inherit',
+                        transition: 'all 0.2s ease', flexShrink: 0,
+                      }}
+                    >
+                      {sending ? '...' : 'Send →'}
+                    </button>
+                  </div>
+                  {sendError && (
+                    <div style={{ color: 'var(--no-color)', fontSize: 10, marginTop: 6, lineHeight: 1.4 }}>
+                      ⚠ {sendError}
+                    </div>
+                  )}
+                  <div style={{ color: 'var(--text-secondary)', fontSize: 10, marginTop: 6 }}>
+                    Balance: {usdcBalance} USDC
+                  </div>
+                </div>
+              </form>
             )}
+
+            {/* ── 3. Token Balance Row (Unified USDC for Gas & Arena) ── */}
+            <div style={{
+              background: 'rgba(6, 42, 81, 0.28)',
+              border: '1px solid var(--border-default)',
+              borderRadius: 12, overflow: 'hidden', marginBottom: 12,
+            }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 14px',
+              }}>
+                <div>
+                  <div style={{
+                    fontSize: 10, fontWeight: 500, letterSpacing: '0.1em',
+                    textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 3,
+                  }}>
+                    USDC · GAS &amp; ARENA
+                  </div>
+                  <div style={{
+                    fontFamily: 'JetBrains Mono, monospace', fontSize: 17, fontWeight: 700,
+                    color: 'var(--text-primary)', letterSpacing: '-0.02em',
+                  }}>
+                    {usdcBalance}
+                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)', marginLeft: 5 }}>
+                      USDC
+                    </span>
+                  </div>
+                </div>
+                <div
+                  className="usdc-icon"
+                  data-slot="usdc-icon"
+                  title="USDC"
+                  style={{
+                    width: 32, height: 32, borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                    boxShadow: '0 2px 10px rgba(39, 117, 202, 0.35)',
+                  }}
+                >
+                  <img
+                    src="/usdc-logo.png"
+                    alt="USDC"
+                    style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: '50%', display: 'block' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* ── Divider ── */}
+            <div style={{ borderTop: '1px solid var(--border-subtle)', marginBottom: 10 }} />
+
+            {/* ── 5. Recent Activity ── */}
+            <div>
+              <div style={{
+                fontSize: 10, fontWeight: 600, letterSpacing: '0.14em',
+                textTransform: 'uppercase', color: 'rgba(142, 159, 176, 0.6)',
+                fontFamily: 'inherit', marginBottom: 8,
+              }}>
+                RECENT ACTIVITY
+              </div>
+
+              {txHistory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '12px 0', color: 'var(--text-tertiary)', fontSize: 11, fontStyle: 'italic' }}>
+                  No activity yet
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {displayedTxs.map((tx) => (
+                    <div
+                      key={tx.id}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '6px 8px', borderRadius: 7,
+                        background: 'rgba(6, 42, 81, 0.25)',
+                        border: '1px solid var(--border-subtle)',
+                        transition: 'background 0.15s', cursor: 'default',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(6, 42, 81, 0.45)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(6, 42, 81, 0.25)'}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ fontSize: 11 }}>{TX_TYPE_ICON[tx.type] || '·'}</span>
+                          <span style={{
+                            color: 'var(--text-primary)', fontSize: 11, fontWeight: 500,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>
+                            {tx.label}
+                          </span>
+                        </div>
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: 10, marginLeft: 16 }}>
+                          {timeAgo(tx.created_at)}
+                        </span>
+                      </div>
+                      {tx.amount != null && (
+                        <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', flexShrink: 0, marginLeft: 8 }}>
+                          {Number(tx.amount).toFixed(2)}{' '}
+                          <span style={{ color: 'var(--accent-bright)', fontSize: 9 }}>USDC</span>
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {txHistory.length > 5 && !showAll && (
+                <button
+                  onClick={() => setShowAll(true)}
+                  style={{
+                    background: 'none', border: 'none',
+                    color: 'var(--text-secondary)', cursor: 'pointer',
+                    fontSize: 10, width: '100%', textAlign: 'center',
+                    padding: '6px 0 0', fontFamily: 'inherit',
+                    transition: 'color 0.2s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}
+                >
+                  Show more ↓
+                </button>
+              )}
+            </div>
+
           </div>
-
-
         </div>
       )}
+
+      <style>{`
+        @keyframes rcw-drop-in {
+          from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+          to   { opacity: 1; transform: translateY(0)   scale(1); }
+        }
+        @keyframes rcw-spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   )
 }
@@ -197,19 +540,24 @@ export default function Navbar() {
       <nav className="navbar">
         <div className="navbar-inner">
         {/* Logo */}
-        <button onClick={() => navigate('/')} className="navbar-logo" style={{ background: 'none', border: 'none', padding: 0 }}>
+        <div onClick={() => navigate('/')} className="navbar-logo" style={{ cursor: 'pointer', userSelect: 'none' }}>
           <div className="navbar-logo-icon">
-            <ArcLogo size={24} />
+            <ArcLogo size={32} />
           </div>
-          <span className="navbar-logo-text"
+          <span
+            className="navbar-logo-text navbar-brand-shimmer"
             style={{
-              background: 'linear-gradient(135deg, #E4E8EC 0%, #8cb4d0 100%)',
-              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+              fontFamily: 'var(--font-display, "Space Grotesk", sans-serif)',
+              fontSize: 18,
+              fontWeight: 700,
+              color: 'var(--text-primary, #E4E8EC)',
+              letterSpacing: -0.5,
+              cursor: 'pointer',
             }}
           >
             Arc Calls
           </span>
-        </button>
+        </div>
 
         {/* Center nav links — absolutely centered */}
           <div className="navbar-center">
@@ -222,7 +570,7 @@ export default function Navbar() {
           ) : (
             <>
               {[
-                { to: '/calls', label: 'Calls' },
+                { to: '/calls', label: 'Markets' },
                 { to: '/leaderboard', label: 'Leaderboard' },
                 { to: '/profile', label: 'Profile' },
                 ...(isAdmin ? [{ to: '/admin', label: 'Admin' }] : []),
@@ -239,9 +587,6 @@ export default function Navbar() {
 
           {/* Right controls */}
           <div className="navbar-right">
-
-          {/* Sound toggle — always visible */}
-          <SoundToggleButton />
 
           {/* Not connected at all — show RainbowKit ConnectButton */}
           {navState === 1 && !isConnected && (
@@ -299,9 +644,6 @@ export default function Navbar() {
           </button>
         </div>
       )}
-
-      {/* Animated sweep line under nav */}
-      <div className="nav-sweep" />
     </>
   )
 }

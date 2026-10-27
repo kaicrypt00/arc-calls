@@ -77,10 +77,14 @@ export default function SettledTab({ predictions }: SettledTabProps) {
 
   if (settled.length === 0) {
     return (
-      <div className="empty-state">
-        <div style={{ fontSize: 36, marginBottom: 12 }}>🏁</div>
-        <div>No settled markets yet.</div>
-        <div className="empty-state-subtitle">Active markets appear here once resolved.</div>
+      <div className="glass-card" style={{ textAlign: 'center', padding: '80px 24px', borderRadius: 24 }}>
+        <div style={{ fontSize: 64, marginBottom: 24, opacity: 0.6 }}>🏁</div>
+        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>
+          No settled calls yet
+        </h3>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 15, margin: 0 }}>
+          Settled predictions will appear here once the admin declares a winner.
+        </p>
       </div>
     )
   }

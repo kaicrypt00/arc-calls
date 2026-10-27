@@ -191,12 +191,30 @@ export default function ProfilePage() {
   }
 
   /* ── Gates ── */
-  if (!isConnected) return <div className="page"><Navbar /><GateConnect /><Footer /></div>
-  if (!hasSessionWallet) return <div className="page"><Navbar /><GateActivate isCreating={isCreating} createSessionWallet={createSessionWallet} /><Footer /></div>
-  if (!profile) return (
-    <div className="page">
+  if (!isConnected) return (
+    <div className="page" style={{ position: 'relative', zIndex: 1, minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <Navbar />
-      <GateNoProfile onSetUp={() => setShowMintModal(true)} />
+      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', padding: '40px 20px' }}>
+        <GateConnect />
+      </main>
+      <Footer />
+    </div>
+  )
+  if (!hasSessionWallet) return (
+    <div className="page" style={{ position: 'relative', zIndex: 1, minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+      <Navbar />
+      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', padding: '40px 20px' }}>
+        <GateActivate isCreating={isCreating} createSessionWallet={createSessionWallet} />
+      </main>
+      <Footer />
+    </div>
+  )
+  if (!profile) return (
+    <div className="page" style={{ position: 'relative', zIndex: 1, minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+      <Navbar />
+      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', padding: '40px 20px' }}>
+        <GateNoProfile onSetUp={() => setShowMintModal(true)} />
+      </main>
       <Footer />
     </div>
   )
@@ -209,7 +227,7 @@ export default function ProfilePage() {
   ]
 
   return (
-    <div style={{ position: 'relative', minHeight: '100dvh' }}>
+    <div className="page" style={{ position: 'relative', zIndex: 1, minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       {/* Ambient background */}
       <div style={{
         position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
@@ -217,22 +235,49 @@ export default function ProfilePage() {
         filter: 'blur(40px)',
       }} />
 
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        <Navbar />
+      <Navbar />
 
-        <div className="container" style={{ padding: '24px 20px 0', maxWidth: 820 }}>
-          <button className="back-btn" onClick={() => navigate('/calls')}>← Back to Calls</button>
-        </div>
+      <main style={{
+        maxWidth: 820,
+        margin: '0 auto',
+        padding: '32px 20px 80px',
+        position: 'relative',
+        zIndex: 10,
+        flex: 1,
+        width: '100%',
+      }}>
+        {/* Back button */}
+        <button
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-secondary)',
+            fontFamily: 'var(--font-body, "Inter", sans-serif)',
+            fontSize: 14,
+            cursor: 'pointer',
+            padding: 0,
+            marginBottom: 24,
+            transition: 'color 0.2s',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-primary)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+          onClick={() => navigate('/calls')}
+        >
+          ← Back to Markets
+        </button>
 
         {/* Profile hero card */}
-        <div className="container" style={{ padding: '16px 20px', maxWidth: 820 }}>
-          <div
-            className="glass-card profile-hero-section"
-            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(223,219,207,0.3)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(54,97,132,0.25)' }}
-          >
-            {/* Gradient overlay */}
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(54,97,132,0.08) 0%, transparent 60%)', pointerEvents: 'none', borderRadius: 'inherit' }} />
+        <div
+          className="glass-card profile-hero-section"
+          style={{ marginBottom: 20 }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(223,219,207,0.3)' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(54,97,132,0.25)' }}
+        >
+          {/* Gradient overlay */}
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(54,97,132,0.08) 0%, transparent 60%)', pointerEvents: 'none', borderRadius: 'inherit' }} />
 
             <div style={{ display: 'flex', gap: 22, alignItems: 'flex-start', flexWrap: 'wrap', position: 'relative' }}>
               {/* Avatar with gradient ring */}
@@ -280,9 +325,6 @@ export default function ProfilePage() {
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="container" style={{ padding: '16px 20px', maxWidth: 820 }}>
 
           {/* Arc Calls Wallet card */}
           {sessionWallet && (
@@ -412,10 +454,9 @@ export default function ProfilePage() {
               betCount={betCount}
             />
           )}
-        </div>
+      </main>
 
-        <Footer />
-      </div>
+      <Footer />
 
       {/* Edit profile modal */}
       <EditProfileModal
