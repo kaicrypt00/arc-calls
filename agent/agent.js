@@ -154,7 +154,9 @@ async function main() {
   const account = privateKeyToAccount(cleanKey)
   const publicClient = createPublicClient({ chain: arc, transport: http(RPC_URL) })
   const walletClient = createWalletClient({ account, chain: arc, transport: http(RPC_URL) })
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+    auth: { persistSession: false },
+  })
 
   console.log(`   Wallet: ${account.address}`)
   console.log(`   Bet size: ${BET_AMOUNT_USDC} USDC\n`)

@@ -81,7 +81,9 @@ const cleanKey = RAW_KEY.trim().startsWith('0x') ? RAW_KEY.trim() : `0x${RAW_KEY
 const account = privateKeyToAccount(cleanKey)
 const publicClient = createPublicClient({ chain: arc, transport: http(RPC_URL) })
 const walletClient = createWalletClient({ account, chain: arc, transport: http(RPC_URL) })
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+  auth: { persistSession: false },
+})
 
 console.log('\n🤖 Arc Agent 001 — Claim Run')
 console.log(`   Wallet: ${account.address}\n`)

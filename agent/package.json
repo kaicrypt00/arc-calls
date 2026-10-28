@@ -2,8 +2,13 @@
   "name": "arc-calls-agent",
   "version": "1.0.0",
   "type": "module",
+  "scripts": {
+    "setup": "node setup.js",
+    "bet": "node agent.js",
+    "claim": "node claim.js"
+  },
   "dependencies": {
-    "viem": "^2.56.3",
-    "@supabase/supabase-js": "^2.118.0"
+    "@supabase/supabase-js": "^2.112.1",
+    "viem": "^2.55.11"
   }
 }
