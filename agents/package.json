@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "viem": "^2.56.3",
-    "@supabase/supabase-js": "^2.118.0"
+    "@supabase/supabase-js": "^2.112.1",
+    "viem": "^2.55.11"
   }
 }

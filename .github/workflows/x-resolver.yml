@@ -17,7 +17,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: 'agents/package.json'
 
@@ -29,7 +29,8 @@ jobs:
         run: node x-resolver.js
         working-directory: agents
         env:
-          RESOLVER_ADMIN_KEY:  ${{ secrets.RESOLVER_ADMIN_KEY }}
-          SUPABASE_URL:        ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY:   ${{ secrets.SUPABASE_ANON_KEY }}
-          BETTING_POOL_ADDRESS: ${{ secrets.BETTING_POOL_ADDRESS }}
+          RESOLVER_ADMIN_KEY:        ${{ secrets.RESOLVER_ADMIN_KEY }}
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY:         ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BETTING_POOL_ADDRESS:      ${{ secrets.BETTING_POOL_ADDRESS }}

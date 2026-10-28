@@ -25,13 +25,13 @@ const MIN_GAS_GWEI = 20n
 // ─── ENVIRONMENT — all from GitHub Secrets ────────────────────────────────────
 const ADMIN_KEY    = process.env.RESOLVER_ADMIN_KEY
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://zxmfdvzkmeybujoowzgh.supabase.co'
-const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
 const BETTING_POOL = process.env.BETTING_POOL_ADDRESS || '0xD7b60891729bC02F8C786Dafb479CD6152f57925'
 
 // ─── VALIDATE ENV — fail fast with clear message ──────────────────────────────
 const missing = []
 if (!ADMIN_KEY)    missing.push('RESOLVER_ADMIN_KEY')
-if (!SUPABASE_KEY) missing.push('SUPABASE_ANON_KEY')
+if (!SUPABASE_KEY) missing.push('SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY')
 if (missing.length > 0) {
   console.error('❌ Missing required GitHub Secrets:', missing.join(', '))
   console.error('   Add in: GitHub repo → Settings → Secrets and variables → Actions')
@@ -48,7 +48,9 @@ const LOCK_ABI = [
 ]
 
 // ─── CLIENTS ──────────────────────────────────────────────────────────────────
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: false },
+})
 const account  = privateKeyToAccount(
   ADMIN_KEY.trim().startsWith('0x') ? ADMIN_KEY.trim() : `0x${ADMIN_KEY.trim()}`
 )
