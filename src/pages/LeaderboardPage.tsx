@@ -99,9 +99,9 @@ function PodiumCard({ entry, rank, isFirst }: { entry: DbLeaderboard; rank: numb
     1: {
       color:    '#E4E8EC',
       colorRgb: '228,232,236',
-      border:   'rgba(90,138,176,0.55)',
+      border:   'rgba(90,138,176,0.65)',
       bg:       'linear-gradient(155deg, rgba(14,58,107,0.55) 0%, rgba(4,20,52,0.95) 50%, rgba(2,11,28,0.98) 100%)',
-      badgeBg:  'rgba(54,97,132,0.25)',
+      badgeBg:  'rgba(6,20,44,0.95)',
       shadow:   '0 0 36px rgba(54,97,132,0.22)',
       glow:     '0 0 16px rgba(90,138,176,0.45)',
       label:    '★ Rank 1',
@@ -109,9 +109,9 @@ function PodiumCard({ entry, rank, isFirst }: { entry: DbLeaderboard; rank: numb
     2: {
       color:    '#8aadcc',
       colorRgb: '138,173,204',
-      border:   'rgba(54,97,132,0.35)',
+      border:   'rgba(54,97,132,0.4)',
       bg:       'linear-gradient(155deg, rgba(8,36,70,0.35) 0%, rgba(4,20,52,0.92) 55%, rgba(2,11,28,0.96) 100%)',
-      badgeBg:  'rgba(54,97,132,0.15)',
+      badgeBg:  'rgba(6,20,44,0.95)',
       shadow:   '0 0 24px rgba(54,97,132,0.12)',
       glow:     'none',
       label:    '· Rank 2',
@@ -119,9 +119,9 @@ function PodiumCard({ entry, rank, isFirst }: { entry: DbLeaderboard; rank: numb
     3: {
       color:    '#6a8fa8',
       colorRgb: '106,143,168',
-      border:   'rgba(54,97,132,0.22)',
+      border:   'rgba(54,97,132,0.3)',
       bg:       'linear-gradient(155deg, rgba(6,24,48,0.25) 0%, rgba(4,20,52,0.9) 55%, rgba(2,11,28,0.95) 100%)',
-      badgeBg:  'rgba(54,97,132,0.1)',
+      badgeBg:  'rgba(6,20,44,0.95)',
       shadow:   '0 0 16px rgba(54,97,132,0.08)',
       glow:     'none',
       label:    '· Rank 3',
@@ -145,8 +145,35 @@ function PodiumCard({ entry, rank, isFirst }: { entry: DbLeaderboard; rank: numb
         borderRadius: 16,
         boxShadow: rankStyles.shadow,
         animation: isFirst ? 'lb-rank1-glow 2.8s ease-in-out infinite' : 'none',
+        transition: 'transform 0.25s ease',
+        transform: hovered ? 'translateY(-5px)' : 'translateY(0)',
       }}
     >
+      {/* Rank pill sitting centred at the very top of the card, half overlapping the border */}
+      <div style={{
+        position:   'absolute',
+        top:        -14,
+        left:       '50%',
+        transform:  'translateX(-50%)',
+        background: rankStyles.badgeBg,
+        color:      rankStyles.color,
+        fontFamily: 'var(--font-display, "Space Grotesk", sans-serif)',
+        fontSize:   isFirst ? 13 : 11,
+        fontWeight: 700,
+        padding:    isFirst ? '6px 18px' : '4px 14px',
+        borderRadius: 999,
+        border:     `1px solid ${rankStyles.border}`,
+        whiteSpace: 'nowrap',
+        boxShadow:  rankStyles.glow,
+        letterSpacing: '0.05em',
+        zIndex:     10,
+        display:    'inline-flex',
+        alignItems: 'center',
+        gap:        4,
+      }}>
+        {rankStyles.label}
+      </div>
+
       <div
         style={{
           background:     rankStyles.bg,
@@ -160,9 +187,6 @@ function PodiumCard({ entry, rank, isFirst }: { entry: DbLeaderboard; rank: numb
           alignItems:     'center',
           textAlign:      'center',
           position:       'relative',
-          overflow:       'hidden',
-          transition:     'transform 0.25s ease',
-          transform:      hovered ? 'translateY(-5px)' : 'translateY(0)',
           zIndex:         1,
         }}
       >
@@ -174,27 +198,6 @@ function PodiumCard({ entry, rank, isFirst }: { entry: DbLeaderboard; rank: numb
             pointerEvents: 'none', borderRadius: '0 15px 0 0',
           }} />
         )}
-
-        {/* Rank pill */}
-        <div style={{
-          position:   'absolute',
-          top:        -16,
-          left:       '50%',
-          transform:  'translateX(-50%)',
-          background: rankStyles.badgeBg,
-          color:      rankStyles.color,
-          fontFamily: 'var(--font-display, "Space Grotesk", sans-serif)',
-          fontSize:   isFirst ? 14 : 12,
-          fontWeight: 700,
-          padding:    isFirst ? '7px 20px' : '5px 16px',
-          borderRadius: 999,
-          border:     `1px solid ${rankStyles.border}`,
-          whiteSpace: 'nowrap',
-          boxShadow:  rankStyles.glow,
-          letterSpacing: '0.05em',
-        }}>
-          {rankStyles.label}
-        </div>
 
         {/* Avatar */}
         <div style={{
@@ -393,7 +396,7 @@ export default function LeaderboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const lbData = (cachedLeaderboard ?? []).filter(e => Number(e.total_calls ?? 0) > 0)
+  const lbData = (cachedLeaderboard ?? []).filter(e => Number(e.total_calls ?? 0) > 0 && Number(e.total_pnl ?? 0) > 0)
   const entries: DbLeaderboard[] = lbData
   const stats: ArenaStats = {
     totalVolume:   lbData.reduce((s, e) => s + Number(e.total_volume ?? 0), 0),
@@ -529,14 +532,20 @@ export default function LeaderboardPage() {
             {top3.length > 0 && (
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: top3.length === 1 ? '1fr' : top3.length === 2 ? '2fr 1.5fr' : '2fr 1.5fr 1.5fr',
-                gap: 16,
-                marginBottom: 32,
+                gridTemplateColumns: top3.length === 1
+                  ? 'minmax(320px, 480px)'
+                  : top3.length === 2
+                    ? 'repeat(2, minmax(300px, 440px))'
+                    : '2fr 1.5fr 1.5fr',
+                justifyContent: top3.length < 3 ? 'center' : 'stretch',
+                gap: 20,
+                marginTop: 20,
+                marginBottom: 36,
                 alignItems: 'start',
               }}>
-                {top3[0] && <PodiumCard entry={top3[0]} rank={1} isFirst />}
-                {top3[1] && <PodiumCard entry={top3[1]} rank={2} />}
-                {top3[2] && <PodiumCard entry={top3[2]} rank={3} />}
+                {top3.map((entry, idx) => (
+                  <PodiumCard key={entry.wallet_address} entry={entry} rank={(idx + 1) as 1 | 2 | 3} isFirst={idx === 0} />
+                ))}
               </div>
             )}
 

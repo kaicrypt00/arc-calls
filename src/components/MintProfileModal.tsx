@@ -6,6 +6,7 @@ import { useToast } from '../contexts/ToastContext'
 import { PROFILE_REGISTRY_ADDRESS } from '../constants'
 import { PROFILE_REGISTRY_ABI } from '../abis'
 import { supabase } from '../lib/supabase'
+import { imageToDataUrl } from '../utils/format'
 import ArcLogo from './ArcLogo'
 
 export default function MintProfileModal() {
@@ -85,26 +86,24 @@ export default function MintProfileModal() {
     showPending('Minting profile...')
 
     try {
-      // Upload avatar if provided
+      // Process avatar if provided (client-side data URL)
       let pfpUrl = ''
       if (pfpFile) {
-        const ext = pfpFile.name.split('.').pop()
-        const path = `${sessionWallet.address.toLowerCase()}/avatar.${ext}`
-        const { error: upErr } = await supabase.storage.from('avatars').upload(path, pfpFile, { upsert: true })
-        if (!upErr) {
-          const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
-          pfpUrl = urlData.publicUrl
+        try {
+          pfpUrl = await imageToDataUrl(pfpFile)
+        } catch {
+          pfpUrl = ''
         }
       }
 
       const maxFeePerGas = await getMaxFeePerGas()
 
-      // Call mintProfile on ProfileRegistry
+      // Call mintProfile on ProfileRegistry — pass '' for pfpHash to keep tx lightweight
       const hash = await writeContract(sessionWallet.client, {
         address: PROFILE_REGISTRY_ADDRESS,
         abi: PROFILE_REGISTRY_ABI as never,
         functionName: 'mintProfile',
-        args: [name.trim().slice(0, 50), bio.trim().slice(0, 160), pfpUrl, cleanX],
+        args: [name.trim().slice(0, 50), bio.trim().slice(0, 160), '', cleanX],
         maxFeePerGas,
       })
       setTxHash(hash)
@@ -136,6 +135,16 @@ export default function MintProfileModal() {
         is_agent: false,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'wallet_address', ignoreDuplicates: true })
+
+      // Insert into wallet_transactions so it appears in Session Wallet History tab
+      await supabase.from('wallet_transactions').insert({
+        wallet_address: sessionWallet.address.toLowerCase(),
+        type: 'profile_creation',
+        label: `Minted Profile: ${name.trim()}`,
+        amount: null,
+        tx_hash: hash,
+        created_at: new Date().toISOString(),
+      })
 
       setStep('success')
       await refreshProfile()

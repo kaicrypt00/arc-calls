@@ -12,7 +12,7 @@ interface Toast {
 
 interface ToastContextValue {
   showPending: (message: string) => string
-  showConfirmed: (txHash: string, message: string) => void
+  showConfirmed: (txHash?: string, message?: string) => void
   showFailed: (error: string) => void
   dismiss: (id: string) => void
 }
@@ -32,7 +32,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     return id
   }, [])
 
-  const showConfirmed = useCallback((txHash: string, message: string) => {
+  const showConfirmed = useCallback((txHash?: string, message: string = '') => {
     const id = crypto.randomUUID()
     setToasts(prev => [...prev.filter(t => t.type !== 'pending'), { id, type: 'confirmed', message, txHash }])
     setTimeout(() => remove(id), 8000)

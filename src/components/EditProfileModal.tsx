@@ -70,46 +70,54 @@ export default function EditProfileModal({ isOpen, onClose, initialName, initial
     try {
       let finalPfpUrl = pfpUrl
 
-      // Upload new avatar if selected
+      // Convert image to compact data URL locally (no storage bucket needed)
       if (pfpFile) {
-        const ext = pfpFile.name.split('.').pop() ?? 'jpg'
-        const path = `${sessionWallet.address.toLowerCase()}/avatar.${ext}`
-        const { error: uploadErr } = await supabase.storage
-          .from('avatars')
-          .upload(path, pfpFile, { upsert: true, contentType: pfpFile.type })
-        if (uploadErr) throw new Error('Avatar upload failed')
-        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
-        finalPfpUrl = urlData.publicUrl
+        finalPfpUrl = await imageToDataUrl(pfpFile)
       }
 
-      const maxFeePerGas = await getMaxFeePerGas()
+      const walletAddr = sessionWallet.address.toLowerCase()
+      const cleanName = name.trim()
+      const cleanBio = bio.trim()
+      const cleanX = x.trim().replace('@', '')
 
-      const hash = await writeContract(sessionWallet.client, {
-        address: PROFILE_REGISTRY_ADDRESS,
-        abi: PROFILE_REGISTRY_ABI as never,
-        functionName: 'updateProfile',
-        args: [name.trim(), bio.trim(), finalPfpUrl, x.trim()],
-        maxFeePerGas,
-      })
-      await publicClient.waitForTransactionReceipt({ hash })
-
-      // Update Supabase profiles
-      await supabase.from('profiles').upsert({
-        wallet_address: sessionWallet.address.toLowerCase(),
-        name: name.trim(),
-        bio: bio.trim(),
+      // 1. Update Supabase FIRST — source of truth for display
+      const { error: profileErr } = await supabase.from('profiles').upsert({
+        wallet_address: walletAddr,
+        name: cleanName,
+        bio: cleanBio,
         pfp_url: finalPfpUrl,
-        x_username: x.trim(),
+        x_username: cleanX,
       }, { onConflict: 'wallet_address' })
+      if (profileErr) throw new Error('Profile save failed: ' + profileErr.message)
 
-      // Update leaderboard name + pfp
+      // 2. Update leaderboard name + pfp
       await supabase.from('leaderboard')
-        .update({ name: name.trim(), pfp_url: finalPfpUrl })
-        .eq('wallet_address', sessionWallet.address.toLowerCase())
+        .update({ name: cleanName, pfp_url: finalPfpUrl })
+        .eq('wallet_address', walletAddr)
 
-      // Instant optimistic update — no re-fetch needed
-      updateProfileData({ name: name.trim(), bio: bio.trim(), pfp_url: finalPfpUrl, x_username: x.trim() })
-      showConfirmed(hash, 'Profile updated!')
+      // 3. Clear localStorage cache so fresh data is loaded
+      try { localStorage.removeItem('arc_profile_' + walletAddr) } catch {}
+
+      // 4. Instant optimistic update so UI reflects immediately
+      updateProfileData({ name: cleanName, bio: cleanBio, pfp_url: finalPfpUrl, x_username: cleanX })
+
+      // 5. On-chain update — pass empty string for pfp to avoid massive gas/revert
+      try {
+        const maxFeePerGas = await getMaxFeePerGas()
+        const hash = await writeContract(sessionWallet.client, {
+          address: PROFILE_REGISTRY_ADDRESS,
+          abi: PROFILE_REGISTRY_ABI as never,
+          functionName: 'updateProfile',
+          args: [cleanName, cleanBio, '', cleanX],
+          maxFeePerGas,
+        })
+        await publicClient.waitForTransactionReceipt({ hash })
+        showConfirmed(hash, 'Profile updated!')
+      } catch (chainErr) {
+        console.warn('On-chain profile update error:', chainErr)
+        showConfirmed('', 'Profile saved ✓')
+      }
+
       onClose()
     } catch (e: unknown) {
       showFailed((e as Error)?.message?.slice(0, 80) ?? 'Update failed')

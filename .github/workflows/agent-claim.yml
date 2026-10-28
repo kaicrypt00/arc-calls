@@ -1,0 +1,39 @@
+name: Arc Agent 001 - Daily Claims
+
+on:
+  schedule:
+    # 8:00 PM UTC every day (12 hours after betting run)
+    - cron: '0 20 * * *'
+  # Manual trigger: GitHub repo → Actions tab → "Arc Agent 001 - Daily Claims" → "Run workflow"
+  workflow_dispatch:
+
+jobs:
+  claim-winnings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'agent/package.json'
+
+      - name: Install agent dependencies
+        run: npm install
+        working-directory: agent
+
+      - name: Run Arc Agent 001 claim script
+        run: node claim.js
+        working-directory: agent
+        env:
+          AGENT_WALLET_KEY:          ${{ secrets.AGENT_WALLET_KEY || secrets.AGENT_PRIVATE_KEY }}
+          AGENT_PRIVATE_KEY:         ${{ secrets.AGENT_WALLET_KEY || secrets.AGENT_PRIVATE_KEY }}
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BETTING_POOL_ADDRESS:      ${{ secrets.BETTING_POOL_ADDRESS }}
+

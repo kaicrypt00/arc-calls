@@ -63,6 +63,8 @@ export function DataPrefetchProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase
       .from('leaderboard')
       .select('*')
+      .gt('total_calls', 0)
+      .gt('total_pnl', 0)
       .order('total_pnl', { ascending: false })
       .limit(100)
     if (error) {

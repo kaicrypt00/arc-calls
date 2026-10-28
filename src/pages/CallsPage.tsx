@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase, type DbPrediction } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
-import Ticker from '../components/Ticker'
 import PredictionCard from '../components/PredictionCard'
 import PollTab from '../components/PollTab'
 import SettledTab from '../components/SettledTab'
@@ -105,9 +104,6 @@ export default function CallsPage() {
   return (
     <div className="page" style={{ position: 'relative', zIndex: 1, minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <Navbar />
-
-      {/* Ticker is inline — sits just below navbar */}
-      <Ticker />
 
       {/* Main content */}
       <main style={{ flex: 1, padding: '20px 0 64px', width: '100%' }}>

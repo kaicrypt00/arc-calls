@@ -1,24 +1,35 @@
-name: X Resolver
+name: Arc Calls — X Resolver
 
 on:
   schedule:
-    - cron: '0 * * * *'  # every hour
-  workflow_dispatch:
+    - cron: '0 * * * *'  # Every hour on the hour (UTC)
+  workflow_dispatch:       # Manual run button in GitHub Actions UI
 
 jobs:
-  resolver:
+  resolve:
     runs-on: ubuntu-latest
+    timeout-minutes: 10    # Kill if it hangs longer than 10 minutes
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install
-        working-directory: ./agents
-      - run: node x-resolver.js
-        working-directory: ./agents
+          cache: 'npm'
+          cache-dependency-path: 'agents/package.json'
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: agents
+
+      - name: Run X Resolver
+        run: node x-resolver.js
+        working-directory: agents
         env:
-          RESOLVER_ADMIN_KEY: ${{ secrets.RESOLVER_ADMIN_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          RESOLVER_ADMIN_KEY:  ${{ secrets.RESOLVER_ADMIN_KEY }}
+          SUPABASE_URL:        ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY:   ${{ secrets.SUPABASE_ANON_KEY }}
           BETTING_POOL_ADDRESS: ${{ secrets.BETTING_POOL_ADDRESS }}

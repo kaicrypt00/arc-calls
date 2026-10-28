@@ -112,7 +112,10 @@ a:hover { color: var(--text-primary); }
 button {
   cursor: pointer; border: none; outline: none;
   font-family: inherit; transition: all 200ms ease;
+  -webkit-appearance: none; appearance: none;
 }
+button:focus { outline: none; box-shadow: none; }
+button:focus-visible { outline: none; box-shadow: none; }
 button:disabled { cursor: not-allowed; opacity: 0.5; }
 
 /* Inputs */
@@ -606,16 +609,17 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
 
 /* ── Live dot ────────────────────────────────────────────────────────────── */
 .live-dot {
-  width: 8px; height: 8px;
+  width: 7px; height: 7px;
   border-radius: 50%;
-  background: #4ade80;
+  background: #5b96c4;
   display: inline-block;
-  animation: livePulse 1.6s ease-in-out infinite;
+  animation: livePulse 1.8s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(91, 150, 196, 0.85);
   flex-shrink: 0;
 }
 @keyframes livePulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
+  0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 8px rgba(91, 150, 196, 0.85); }
+  50% { opacity: 0.55; transform: scale(0.8); box-shadow: 0 0 3px rgba(91, 150, 196, 0.35); }
 }
 
 /* ── Status pills ────────────────────────────────────────────────────────── */
@@ -625,36 +629,53 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
   font-size: 11px; font-weight: 600;
   letter-spacing: 0.04em; text-transform: uppercase;
 }
-.status-live    { background: rgba(74,222,128,0.12); color: #4ade80; border: 1px solid rgba(74,222,128,0.25); }
+.status-live    { background: rgba(0, 0, 0, 0.65); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.15); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .status-locked  { background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); }
-.status-settled-yes { background: rgba(74,222,128,0.12); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); }
+.status-settled-yes { background: rgba(10, 42, 80, 0.4); color: #72a9d4; border: 1px solid rgba(74, 128, 176, 0.4); }
 .status-settled-no  { background: rgba(248,113,113,0.12); color: #f87171; border: 1px solid rgba(248,113,113,0.3); }
 .status-refunded    { background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.25); }
 
 /* ── YES/NO bet buttons ──────────────────────────────────────────────────── */
-.btn-stitch-yes {
-  flex: 1; padding: 10px 16px; border-radius: 10px;
-  border: 1.5px solid rgba(74,222,128,0.3);
-  background: rgba(74,222,128,0.06); color: #4ade80;
-  font-size: 13px; font-weight: 700; cursor: pointer;
-  transition: all 150ms ease; letter-spacing: 0.03em;
+.btn-stitch-yes,
+.btn-stitch-no {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 8px;
+  border-radius: 10px;
+  font-family: var(--font-display, inherit);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 200ms ease;
+  line-height: 1;
 }
-.btn-stitch-yes:hover, .btn-stitch-yes.selected {
-  background: rgba(74,222,128,0.18);
-  border-color: #4ade80;
-  box-shadow: 0 0 12px rgba(74,222,128,0.2);
+.btn-stitch-yes {
+  background: rgba(10, 42, 80, 0.45);
+  color: #8cb9dd;
+  border: 1.5px solid #4a80b0;
+}
+.btn-stitch-yes:hover:not(:disabled) {
+  background: #235887;
+  color: #ffffff;
+  border-color: #5b96c4;
+  box-shadow: 0 0 16px rgba(74, 128, 176, 0.45);
 }
 .btn-stitch-no {
-  flex: 1; padding: 10px 16px; border-radius: 10px;
-  border: 1.5px solid rgba(248,113,113,0.3);
-  background: rgba(248,113,113,0.06); color: #f87171;
-  font-size: 13px; font-weight: 700; cursor: pointer;
-  transition: all 150ms ease; letter-spacing: 0.03em;
+  background: rgba(217, 79, 79, 0.06);
+  color: #f87171;
+  border: 1.5px solid rgba(248, 113, 113, 0.7);
 }
-.btn-stitch-no:hover, .btn-stitch-no.selected {
-  background: rgba(248,113,113,0.18);
-  border-color: #f87171;
-  box-shadow: 0 0 12px rgba(248,113,113,0.2);
+.btn-stitch-no:hover:not(:disabled) {
+  background: #ef4444;
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.45);
+}
+.btn-stitch-yes:disabled,
+.btn-stitch-no:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* ── Bet input ───────────────────────────────────────────────────────────── */
@@ -1116,7 +1137,7 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
 .bet-input-label { font-size: 11px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
 .bet-input-row { display: flex; gap: 8px; }
 
-/* â”€â”€ Toast â€” top-right, SVG-ready â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* -- Toast - top-right, SVG-ready ------------------------------------------- */
 .toast-container {
   position: fixed;
   top: 20px; right: 20px;
@@ -1391,20 +1412,69 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
   --rk-radii-connectButton: 12px;
 }
 
-[data-rk] button {
-  font-family: var(--font-display, 'Space Grotesk', sans-serif) !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.3px !important;
-  border: 1px solid rgba(90, 138, 176, 0.35) !important;
-  transition: all 0.2s ease !important;
+[data-rk] button[data-testid="rk-connect-button"],
+[data-rk] button[data-testid="rk-account-button"] {
+  font-family: var(--font-display, 'Space Grotesk', sans-serif);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  border: 1px solid rgba(90, 138, 176, 0.35);
+  transition: all 0.2s ease;
 }
 
-[data-rk] button:hover {
-  background: rgba(6, 42, 81, 0.95) !important;
-  border-color: rgba(90, 138, 176, 0.6) !important;
-  box-shadow: 0 0 16px rgba(90, 138, 176, 0.25) !important;
-  transform: translateY(-1px) !important;
+[data-rk] button[data-testid="rk-connect-button"]:hover,
+[data-rk] button[data-testid="rk-account-button"]:hover {
+  background: rgba(6, 42, 81, 0.95);
+  border-color: rgba(90, 138, 176, 0.6);
+  box-shadow: 0 0 16px rgba(90, 138, 176, 0.25);
+  transform: translateY(-1px);
+}
+
+/* Profile Tab Buttons (My Calls & Badges) — clean underline tabs, zero outline or border */
+.profile-tab-btn {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  cursor: pointer !important;
+  font-family: var(--font-display, 'Space Grotesk', sans-serif) !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  padding: 0 0 16px !important;
+  margin: 0 !important;
+  transform: none !important;
+  color: var(--text-secondary) !important;
+  transition: color 0.2s ease, border-color 0.2s ease !important;
+}
+
+.profile-tab-btn:hover {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+  color: var(--text-primary) !important;
+}
+
+.profile-tab-btn.active {
+  color: var(--accent-bright) !important;
+  border-bottom: 2px solid var(--accent-bright) !important;
+}
+
+.profile-tab-btn:focus,
+.profile-tab-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+}
+
+.profile-tab-btn.active:focus,
+.profile-tab-btn.active:focus-visible {
+  border-bottom: 2px solid var(--accent-bright) !important;
 }
 
 /* -- Navbar sweep glow � persistent below header (Arc electric-blue theme) -- */
@@ -1431,4 +1501,77 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
   animation: navbar-sweep 5.5s linear infinite;
   pointer-events: none;
   z-index: 101;
+}
+
+/* -- Status Pills (LIVE / Locked / Settled / Refunded) -------------------- */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.status-live {
+  background: rgba(0, 0, 0, 0.65);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.status-locked {
+  background: rgba(3, 10, 24, 0.80);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.30);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.status-settled-yes {
+  background: rgba(74, 222, 128, 0.12);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.30);
+}
+.status-settled-no {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.30);
+}
+.status-refunded {
+  background: rgba(148, 163, 184, 0.10);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.20);
+}
+
+/* -- Live dot pulsing indicator ------------------------------------------- */
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5b96c4;
+  display: inline-block;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(91, 150, 196, 0.85);
+  animation: livePulse 1.8s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 8px rgba(91, 150, 196, 0.85); }
+  50%       { opacity: 0.55; transform: scale(0.8); box-shadow: 0 0 3px rgba(91, 150, 196, 0.35); }
+}
+
+/* -- Pool bars (YES/NO slim bar below the percentage boxes) --------------- */
+.pool-bar-yes {
+  background: #4a80b0;
+  height: 100%;
+  border-radius: 3px 0 0 3px;
+  transition: width 400ms cubic-bezier(.4,0,.2,1);
+}
+.pool-bar-no {
+  background: #f87171;
+  height: 100%;
+  border-radius: 0 3px 3px 0;
+  transition: width 400ms cubic-bezier(.4,0,.2,1);
 }

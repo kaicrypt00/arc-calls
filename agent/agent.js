@@ -1,16 +1,15 @@
 /**
- * Arc Calls — AI Trading Agent
- * Runs daily at 8AM UTC via GitHub Actions.
- * Places 1 bet of 0.1 USDC per run on the market with the earliest deadline.
- * Uses OpenRouter (meta-llama/llama-3.1-8b-instruct:free) for YES/NO decision.
+ * Arc Calls — Arc Agent 001 Autonomous Betting Agent
+ * Runs daily at 8:00 AM UTC via GitHub Actions (workflow: agent-bet.yml).
+ * Places 1 bet of 0.1 USDC per run on the open market with the earliest deadline.
+ * Uses OpenRouter free models for strict YES/NO decision with fallback resilience.
  */
 
-import { createWalletClient, createPublicClient, http, parseUnits, formatUnits } from 'viem'
+import { createWalletClient, createPublicClient, http, parseUnits, formatUnits, defineChain } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { defineChain } from 'viem'
 import { createClient } from '@supabase/supabase-js'
 
-// Arc Mainnet
+// ─── ARC MAINNET CONFIG ───────────────────────────────────────────────────────
 const arc = defineChain({
   id: 5042,
   name: 'Arc',
@@ -19,15 +18,21 @@ const arc = defineChain({
   blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.arc.io' } },
 })
 
-const RPC_URL   = 'https://rpc.mainnet.arc.io'
-const CHAIN_ID  = 5042
-const BET_AMOUNT_USDC = '0.1'
-const BETS_PER_RUN    = 1
-
-const USDC_ADDRESS    = '0x3600000000000000000000000000000000000000'
-const BETTING_POOL    = process.env.BETTING_POOL_ADDRESS ?? ''
-
+const RPC_URL = 'https://rpc.mainnet.arc.io'
+const USDC_ADDRESS = '0x3600000000000000000000000000000000000000'
+const BET_AMOUNT_USDC = '0.1' // Exactly 0.1 USDC per bet
+const BETS_PER_RUN = 1
 const MIN_GAS_GWEI = 20n
+
+// ─── ENVIRONMENT ──────────────────────────────────────────────────────────────
+const RAW_KEY = process.env.AGENT_WALLET_KEY || process.env.AGENT_PRIVATE_KEY
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://zxmfdvzkmeybujoowzgh.supabase.co'
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+const BETTING_POOL = process.env.BETTING_POOL_ADDRESS || '0xD7b60891729bC02F8C786Dafb479CD6152f57925'
+
+// Side constants: 1 = YES, 2 = NO
+const SIDE = { YES: 1, NO: 2 }
 
 const ERC20_ABI = [
   { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
@@ -37,217 +42,314 @@ const ERC20_ABI = [
 
 const BETTING_POOL_ABI = [
   { name: 'placeBet', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'id', type: 'uint256' }, { name: 'side', type: 'uint8' }, { name: 'amount', type: 'uint256' }], outputs: [] },
-  { name: 'getBetCount', type: 'function', stateMutability: 'view', inputs: [{ name: 'user', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
+  { name: 'isBettingLocked', type: 'function', stateMutability: 'view', inputs: [{ name: 'id', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] },
 ]
 
 async function getMaxFeePerGas(publicClient) {
   try {
     const fee = await publicClient.estimateFeesPerGas()
     const base = fee.maxFeePerGas ?? MIN_GAS_GWEI * 10n ** 9n
-    const min  = MIN_GAS_GWEI * 10n ** 9n
+    const min = MIN_GAS_GWEI * 10n ** 9n
     return base < min ? min : base * 2n
   } catch {
     return MIN_GAS_GWEI * 10n ** 9n
   }
 }
 
+// ─── AI DECISION ENGINE (OpenRouter Free Models) ──────────────────────────────
 async function getAIDecision(market) {
-  if (!process.env.OPENROUTER_API_KEY) return fallbackDecision(market)
-  try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://arc-calls.vercel.app',
-        'X-Title': 'Arc Calls',
-      },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-3.1-8b-instruct:free',
-        messages: [{
-          role: 'user',
-          content: `You are Arc Agent 001, an AI prediction market trader on Arc Calls.
+  const yesPool = parseFloat(market.yes_pool || 0)
+  const noPool = parseFloat(market.no_pool || 0)
+  const total = yesPool + noPool
+  const yesPct = total > 0 ? ((yesPool / total) * 100).toFixed(1) : '50.0'
+  const noPct = total > 0 ? ((noPool / total) * 100).toFixed(1) : '50.0'
 
-Market: "${market.title}"
-Description: "${market.description}"
-YES Pool: ${market.yes_pool} USDC
-NO Pool: ${market.no_pool} USDC
-Deadline: ${market.deadline}
+  const deadline = market.no_deadline
+    ? 'No deadline'
+    : new Date(market.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
-Analyze this prediction market carefully. Consider:
-- The current odds implied by pool sizes
-- The likelihood of the YES outcome based on the title/description
-- Value betting (bet where the odds undervalue the true probability)
+  const prompt =
+    `You are Arc Agent 001, an autonomous AI prediction market trader on Arc Calls.\n` +
+    `Analyze this prediction market:\n\n` +
+    `Market: "${market.title}"\n` +
+    `Description: "${market.description || 'No description provided.'}"\n` +
+    `Current pool odds: ${yesPct}% YES (${yesPool} USDC), ${noPct}% NO (${noPool} USDC)\n` +
+    `Deadline: ${deadline}\n\n` +
+    `Evaluate market probability and odds.\n` +
+    `Respond with strictly one word: YES or NO`
 
-Respond with ONLY one word: YES or NO`
-        }],
-        max_tokens: 5,
-        temperature: 0.3,
-      }),
-    })
-    const data = await res.json()
-    const content = data.choices?.[0]?.message?.content?.trim().toUpperCase()
-    if (content === 'YES' || content === 'NO') return content
-    return fallbackDecision(market)
-  } catch (e) {
-    console.warn('OpenRouter error:', e.message)
-    return fallbackDecision(market)
+  // Free models on OpenRouter (in priority order)
+  const FREE_MODELS = [
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'meta-llama/llama-3.1-8b-instruct:free',
+    'mistralai/mistral-7b-instruct:free',
+    'google/gemini-2.0-flash-lite:free',
+    'google/gemma-3-4b-it:free',
+  ]
+
+  if (OPENROUTER_API_KEY) {
+    for (const model of FREE_MODELS) {
+      try {
+        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://arc-calls.vercel.app',
+            'X-Title': 'Arc Agent 001',
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 10,
+            temperature: 0.2,
+          }),
+        })
+
+        if (res.ok) {
+          const data = await res.json()
+          const raw = (data.choices?.[0]?.message?.content || '').trim().toUpperCase()
+          if (raw === 'YES' || raw.startsWith('YES')) {
+            console.log(`🤖 AI decision from [${model}]: YES`)
+            return 'YES'
+          }
+          if (raw === 'NO' || raw.startsWith('NO')) {
+            console.log(`🤖 AI decision from [${model}]: NO`)
+            return 'NO'
+          }
+          console.warn(`⚠️ Model [${model}] returned "${raw}". Trying next fallback...`)
+        } else {
+          const errText = await res.text().catch(() => '')
+          console.warn(`⚠️ OpenRouter notice for [${model}] (${res.status}): ${errText.slice(0, 100)}. Trying fallback...`)
+        }
+      } catch (e) {
+        console.warn(`⚠️ Fetch failed for [${model}]: ${e.message}`)
+      }
+    }
   }
+
+  // Resilient heuristic fallback: bet where crowd is clear or contrarian value
+  console.log('📊 AI endpoints exhausted or API key not present. Using heuristic fallback.')
+  const yp = parseFloat(market.yes_pool || 0)
+  const np = parseFloat(market.no_pool || 0)
+  if (yp > np * 1.3) return 'YES'
+  if (np > yp * 1.3) return 'NO'
+  return yp <= np ? 'YES' : 'NO'
 }
 
-function fallbackDecision(market) {
-  const yes = Number(market.yes_pool ?? 0)
-  const no  = Number(market.no_pool ?? 0)
-  const total = yes + no
-  if (total === 0) return Math.random() > 0.5 ? 'YES' : 'NO'
-  // Bet on the underdog (contrarian strategy)
-  return yes <= no ? 'YES' : 'NO'
-}
-
+// ─── MAIN RUN ─────────────────────────────────────────────────────────────────
 async function main() {
-  console.log('[Arc Agent 001] Starting run...')
+  console.log('\n🤖 Arc Agent 001 — Daily Bet Run')
 
-  const privateKey = process.env.AGENT_PRIVATE_KEY
-  if (!privateKey) { console.error('AGENT_PRIVATE_KEY not set'); process.exit(1) }
-  if (!BETTING_POOL) { console.error('BETTING_POOL_ADDRESS not set'); process.exit(1) }
+  if (!RAW_KEY) {
+    console.error('❌ AGENT_WALLET_KEY (or AGENT_PRIVATE_KEY) not set in environment.')
+    process.exit(1)
+  }
+  if (!SUPABASE_SERVICE_KEY) {
+    console.error('❌ SUPABASE_SERVICE_ROLE_KEY not set in environment.')
+    process.exit(1)
+  }
 
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-  const account = privateKeyToAccount(privateKey)
+  const cleanKey = RAW_KEY.trim().startsWith('0x') ? RAW_KEY.trim() : `0x${RAW_KEY.trim()}`
+  const account = privateKeyToAccount(cleanKey)
   const publicClient = createPublicClient({ chain: arc, transport: http(RPC_URL) })
   const walletClient = createWalletClient({ account, chain: arc, transport: http(RPC_URL) })
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-  console.log('[Arc Agent 001] Wallet:', account.address)
+  console.log(`   Wallet: ${account.address}`)
+  console.log(`   Bet size: ${BET_AMOUNT_USDC} USDC\n`)
 
-  // Check USDC balance
+  // 1. Check USDC Balance
   const rawBalance = await publicClient.readContract({
-    address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [account.address],
+    address: USDC_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: [account.address],
   })
   const balance = parseFloat(formatUnits(rawBalance, 6))
   const minRequired = parseFloat(BET_AMOUNT_USDC) * BETS_PER_RUN
-  console.log(`[Arc Agent 001] USDC Balance: ${balance.toFixed(6)}`)
+  console.log(`💰 USDC Balance: ${balance.toFixed(4)} (Need at least ${minRequired} USDC)`)
 
   if (balance < minRequired) {
-    console.warn(`[Arc Agent 001] Insufficient balance (${balance} < ${minRequired}). Exiting.`)
+    console.warn(`⚠️ Insufficient USDC balance (${balance} < ${minRequired}). Exiting run.`)
     process.exit(0)
   }
 
-  // Fetch open markets from Supabase
-  const { data: markets } = await supabase
+  // 2. Fetch Open Markets from Supabase
+  const { data: markets, error: mError } = await supabase
     .from('predictions_display')
-    .select('*')
+    .select('id, title, description, status, yes_pool, no_pool, deadline, no_deadline')
     .eq('status', 'open')
     .order('deadline', { ascending: true })
-    .limit(10)
+    .limit(30)
+
+  if (mError) {
+    console.error(`❌ Supabase error loading markets: ${mError.message}`)
+    process.exit(1)
+  }
 
   if (!markets || markets.length === 0) {
-    console.log('[Arc Agent 001] No open markets. Exiting.')
+    console.log('✓ No open markets found. Exiting.')
     process.exit(0)
   }
 
-  // Filter out markets the agent already bet on
+  // 3. Filter out markets already bet on
   const { data: existingBets } = await supabase
     .from('bets')
     .select('prediction_id')
     .eq('wallet_address', account.address.toLowerCase())
 
-  const bettedIds = new Set((existingBets ?? []).map(b => b.prediction_id))
-  const eligible = markets.filter(m => {
-    if (bettedIds.has(m.id)) return false
-    // Check betting is not locked (5 min before deadline)
-    const dl = new Date(m.deadline).getTime()
-    if (Date.now() >= dl - 5 * 60 * 1000) return false
-    return true
-  })
+  const bettedIds = new Set((existingBets || []).map(b => String(b.prediction_id)))
+  const now = Date.now()
 
+  const eligible = []
+  for (const m of markets) {
+    if (bettedIds.has(String(m.id))) continue
+
+    // Check 5 minutes before deadline
+    if (!m.no_deadline && m.deadline) {
+      const dl = new Date(m.deadline).getTime()
+      if (now >= dl - 5 * 60 * 1000) continue
+    }
+
+    // Verify on-chain lock status
+    try {
+      const locked = await publicClient.readContract({
+        address: BETTING_POOL,
+        abi: BETTING_POOL_ABI,
+        functionName: 'isBettingLocked',
+        args: [BigInt(m.id)],
+      })
+      if (locked) continue
+    } catch {
+      // Proceed if view call reverts or unsupported
+    }
+
+    eligible.push(m)
+  }
+
+  console.log(`📊 Eligible new markets: ${eligible.length} (Already bet: ${bettedIds.size})`)
   if (eligible.length === 0) {
-    console.log('[Arc Agent 001] No eligible markets. Exiting.')
+    console.log('✓ All eligible open markets have already been called by Arc Agent 001. Done.')
     process.exit(0)
   }
 
-  const market = eligible[0]
-  console.log(`[Arc Agent 001] Picked market #${market.id}: "${market.title}"`)
+  // 4. Select earliest deadline market
+  const targetMarket = eligible[0]
+  console.log(`\n🎯 Target Market #${targetMarket.id}: "${targetMarket.title}"`)
 
-  // Get AI decision
-  const side = await getAIDecision(market)
-  console.log(`[Arc Agent 001] Decision: ${side}`)
+  // 5. Get AI Decision
+  const decision = await getAIDecision(targetMarket)
+  const sideNum = decision === 'YES' ? SIDE.YES : SIDE.NO
+  console.log(`🤖 Arc Agent 001 Decision: ${decision}`)
 
-  // Ensure USDC approval
+  // 6. Ensure USDC Spend Allowance
+  const rawBet = parseUnits(BET_AMOUNT_USDC, 6)
   const allowance = await publicClient.readContract({
-    address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'allowance',
+    address: USDC_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
     args: [account.address, BETTING_POOL],
   })
-  if (allowance < parseUnits(BET_AMOUNT_USDC, 6)) {
-    console.log('[Arc Agent 001] Approving USDC...')
+
+  if (allowance < rawBet) {
+    console.log('📝 Approving USDC for BettingPool...')
     const maxFeePerGas = await getMaxFeePerGas(publicClient)
-    const appHash = await walletClient.writeContract({
-      address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve',
-      args: [BETTING_POOL, 2n ** 256n - 1n],
+    const MAX_UINT256 = 2n ** 256n - 1n
+    const approveTx = await walletClient.writeContract({
+      address: USDC_ADDRESS,
+      abi: ERC20_ABI,
+      functionName: 'approve',
+      args: [BETTING_POOL, MAX_UINT256],
       maxFeePerGas,
     })
-    await publicClient.waitForTransactionReceipt({ hash: appHash })
-    console.log('[Arc Agent 001] Approval confirmed.')
+    await publicClient.waitForTransactionReceipt({ hash: approveTx })
+    console.log(`✓ Approved! Tx: ${approveTx}`)
   }
 
-  // Place bet
-  const rawAmount = parseUnits(BET_AMOUNT_USDC, 6)
-  const sideNum = side === 'YES' ? 1 : 2
+  // 7. Execute Bet On-Chain
+  console.log(`💸 Placing ${BET_AMOUNT_USDC} USDC call on ${decision}...`)
   const maxFeePerGas = await getMaxFeePerGas(publicClient)
-
-  console.log(`[Arc Agent 001] Placing ${BET_AMOUNT_USDC} USDC on ${side} for market #${market.id}...`)
-  const hash = await walletClient.writeContract({
-    address: BETTING_POOL, abi: BETTING_POOL_ABI, functionName: 'placeBet',
-    args: [BigInt(market.id), sideNum, rawAmount],
+  const txHash = await walletClient.writeContract({
+    address: BETTING_POOL,
+    abi: BETTING_POOL_ABI,
+    functionName: 'placeBet',
+    args: [BigInt(targetMarket.id), sideNum, rawBet],
     maxFeePerGas,
   })
-  await publicClient.waitForTransactionReceipt({ hash })
-  console.log('[Arc Agent 001] Bet confirmed:', hash)
 
-  const now = new Date().toISOString()
+  console.log(`   Tx submitted: ${txHash}`)
+  console.log(`   Waiting for receipt...`)
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+  if (receipt.status === 'reverted') {
+    throw new Error(`Bet transaction reverted on-chain. Tx: ${txHash}`)
+  }
+  console.log(`✅ Bet confirmed! Tx: ${txHash}`)
+  console.log(`   Explorer: https://explorer.arc.io/tx/${txHash}`)
 
-  // Record in bets table
-  await supabase.from('bets').insert({
-    prediction_id: market.id,
-    wallet_address: account.address.toLowerCase(),
-    side,
-    amount: parseFloat(BET_AMOUNT_USDC),
+  // 8. Record in Supabase
+  const wallet = account.address.toLowerCase()
+  const betAmtNum = parseFloat(BET_AMOUNT_USDC)
+  const timestamp = new Date().toISOString()
+
+  // Insert into bets table
+  const { error: betError } = await supabase.from('bets').insert({
+    prediction_id: targetMarket.id,
+    wallet_address: wallet,
+    side: decision,
+    amount: betAmtNum,
     result: 'pending',
     payout: 0,
-    tx_hash: hash,
-    created_at: now,
+    tx_hash: txHash,
+    created_at: timestamp,
   })
+  if (betError) console.warn(`⚠️ bets insert notice: ${betError.message}`)
 
-  // Upsert leaderboard
-  const { data: existing } = await supabase.from('leaderboard').select('total_calls,total_volume').eq('wallet_address', account.address.toLowerCase()).single()
+  // Update leaderboard
+  const { data: existingLeaderboard } = await supabase
+    .from('leaderboard')
+    .select('total_volume, total_calls')
+    .eq('wallet_address', wallet)
+    .single()
+
   await supabase.from('leaderboard').upsert({
-    wallet_address: account.address.toLowerCase(),
+    wallet_address: wallet,
     name: 'Arc Agent 001',
-    pfp_url: 'https://api.dicebear.com/7.x/bottts/svg?seed=arc-agent-001&backgroundColor=062a51',
-    total_calls: (existing?.total_calls ?? 0) + 1,
-    wins: existing?.wins ?? 0,
-    losses: existing?.losses ?? 0,
-    win_rate: existing?.win_rate ?? 0,
-    total_pnl: existing?.total_pnl ?? 0,
-    total_volume: (existing?.total_volume ?? 0) + parseFloat(BET_AMOUNT_USDC),
+    pfp_url: 'https://arc-calls.vercel.app/agent-pfp.jpg',
+    total_calls: (existingLeaderboard?.total_calls || 0) + 1,
+    wins: existingLeaderboard?.wins || 0,
+    losses: existingLeaderboard?.losses || 0,
+    win_rate: existingLeaderboard?.win_rate || 0,
+    total_pnl: existingLeaderboard?.total_pnl || 0,
+    total_volume: (existingLeaderboard?.total_volume || 0) + betAmtNum,
     is_agent: true,
-    updated_at: now,
+    updated_at: timestamp,
   }, { onConflict: 'wallet_address' })
 
   // Update predictions_display pool
-  const newYes = side === 'YES' ? Number(market.yes_pool) + parseFloat(BET_AMOUNT_USDC) : Number(market.yes_pool)
-  const newNo  = side === 'NO'  ? Number(market.no_pool)  + parseFloat(BET_AMOUNT_USDC) : Number(market.no_pool)
-  await supabase.from('predictions_display').update({ yes_pool: newYes, no_pool: newNo }).eq('id', market.id)
+  const currentYes = parseFloat(targetMarket.yes_pool || 0)
+  const currentNo = parseFloat(targetMarket.no_pool || 0)
+  const updatePayload = decision === 'YES'
+    ? { yes_pool: currentYes + betAmtNum }
+    : { no_pool: currentNo + betAmtNum }
 
-  // Wallet transaction
+  await supabase.from('predictions_display').update(updatePayload).eq('id', targetMarket.id)
+
+  // Insert into wallet_transactions for Session Wallet history
   await supabase.from('wallet_transactions').insert({
-    wallet_address: account.address.toLowerCase(),
+    wallet_address: wallet,
     type: 'bet',
-    label: `Agent bet ${BET_AMOUNT_USDC} USDC on ${side} — ${market.title.slice(0, 40)}`,
-    amount: parseFloat(BET_AMOUNT_USDC),
-    tx_hash: hash,
-    created_at: now,
-  })
+    label: `Called ${BET_AMOUNT_USDC} USDC ${decision} — "${targetMarket.title.slice(0, 32)}..."`,
+    amount: betAmtNum,
+    tx_hash: txHash,
+    created_at: timestamp,
+  }).catch(() => {})
 
-  console.log('[Arc Agent 001] Run complete.')
+  console.log('📊 Recorded in Supabase bets, leaderboard, and wallet_transactions.')
+  console.log('\n🏁 Arc Agent 001 run complete!')
 }
 
-main().catch(e => { console.error('[Arc Agent 001] Fatal:', e); process.exit(1) })
+main().catch(err => {
+  console.error('\n💥 Fatal agent error:', err.message)
+  process.exit(1)
+})

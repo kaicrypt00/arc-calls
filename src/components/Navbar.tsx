@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAccount, useSwitchChain } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { isAddress } from 'viem'
-import { useSessionWallet } from '../contexts/SessionWalletContext'
+import { useSessionWallet, getMaxSendableUSDC } from '../contexts/SessionWalletContext'
 import { useProfile } from '../contexts/ProfileContext'
 import { useToast } from '../contexts/ToastContext'
 import { supabase, type DbWalletTransaction } from '../lib/supabase'
@@ -42,7 +42,9 @@ function SessionWalletDropdown() {
   const [sending, setSending] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [txHistory, setTxHistory] = useState<DbWalletTransaction[]>([])
-  const [showAll, setShowAll] = useState(false)
+  // Max sendable = balance minus gas reserve (Arc native gas = ERC20 USDC, same token)
+  const [maxSendable, setMaxSendable] = useState<string | null>(null)
+  const [loadingMax, setLoadingMax] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
 
   const loadRecentTxs = useCallback(async () => {
@@ -52,7 +54,7 @@ function SessionWalletDropdown() {
       .select('*')
       .eq('wallet_address', sessionWallet.address.toLowerCase())
       .order('created_at', { ascending: false })
-      .limit(10)
+      .limit(30)
     if (data) setTxHistory(data as DbWalletTransaction[])
   }, [sessionWallet])
 
@@ -103,30 +105,73 @@ function SessionWalletDropdown() {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  // Fetch max sendable whenever Send panel opens (gas-aware calculation)
+  useEffect(() => {
+    if (!showSend || !sessionWallet) {
+      setMaxSendable(null)
+      return
+    }
+    setLoadingMax(true)
+    getMaxSendableUSDC(sessionWallet.address)
+      .then(max => setMaxSendable(max))
+      .catch(() => setMaxSendable(null))
+      .finally(() => setLoadingMax(false))
+  }, [showSend, sessionWallet])
+
+  const handleMax = () => {
+    if (maxSendable && parseFloat(maxSendable) > 0) {
+      setSendAmount(maxSendable)
+      setSendError('')
+    }
+  }
+
+  /** Turn raw contract/EVM error into a clean user-facing message */
+  const formatSendError = (err: unknown): string => {
+    const raw = (err as Error)?.message ?? 'Send failed'
+    if (raw.startsWith('Insufficient balance for transfer') || raw.startsWith('Transfer transaction reverted')) {
+      return raw
+    }
+    if (raw.includes('ERC20') || raw.includes('transfer amount exceeds')) {
+      return 'Insufficient USDC balance. Use Max to auto-fill the safe amount.'
+    }
+    if (raw.includes('insufficient funds') || raw.includes('insufficient native')) {
+      return 'Not enough balance to cover gas fees. Use Max to leave room for fees.'
+    }
+    if (raw.includes('reverted')) {
+      return 'Transaction reverted on-chain. Try a smaller amount or click Max.'
+    }
+    return raw.slice(0, 120)
+  }
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
     setSendError('')
 
     if (!isAddress(sendTo)) {
-      setSendError('Invalid address')
+      setSendError('Invalid recipient address')
       return
     }
     const amt = parseFloat(sendAmount)
     if (isNaN(amt) || amt <= 0) {
-      setSendError('Enter a valid amount')
+      setSendError('Enter a valid amount greater than 0')
       return
     }
     const bal = parseFloat(usdcBalance)
     if (amt > bal) {
-      setSendError('Insufficient balance')
+      setSendError('Amount exceeds your USDC balance')
+      return
+    }
+    // Pre-flight client-side gas check
+    if (maxSendable !== null && amt > parseFloat(maxSendable) + 0.0001) {
+      setSendError(`Leaves no room for gas. Max sendable: ${maxSendable} USDC — click Max to auto-fill.`)
       return
     }
 
     setSending(true)
     showPending(`Sending ${sendAmount} USDC...`)
     try {
-      const txHash = await sendUSDC(sendTo, sendAmount)
-      showConfirmed(txHash, `Sent ${sendAmount} USDC`)
+      const txHash = await sendUSDC(sendTo as `0x${string}`, sendAmount)
+      showConfirmed(txHash, `Sent ${sendAmount} USDC ✓`)
 
       supabase.from('wallet_transactions').insert({
         wallet_address: (sessionWallet?.address ?? '').toLowerCase(),
@@ -134,6 +179,7 @@ function SessionWalletDropdown() {
         label: `Withdrew ${sendAmount} USDC to ${truncateAddress(sendTo)}`,
         tx_hash: txHash,
         amount: amt,
+        created_at: new Date().toISOString(),
       }).then(() => {
         loadRecentTxs()
       })
@@ -143,7 +189,7 @@ function SessionWalletDropdown() {
       setShowSend(false)
       await loadBalances()
     } catch (e) {
-      const msg = (e as Error).message?.slice(0, 80) ?? 'Send failed'
+      const msg = formatSendError(e)
       showFailed(msg)
       setSendError(msg)
     } finally {
@@ -152,8 +198,6 @@ function SessionWalletDropdown() {
   }
 
   if (!sessionWallet) return null
-
-  const displayedTxs = showAll ? txHistory : txHistory.slice(0, 5)
 
   return (
     <div style={{ position: 'relative' }} ref={dropRef}>
@@ -341,21 +385,42 @@ function SessionWalletDropdown() {
                       fontFamily: 'JetBrains Mono, monospace', marginBottom: 6,
                     }}
                   />
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input
-                      type="number"
-                      value={sendAmount}
-                      onChange={e => { setSendAmount(e.target.value); setSendError('') }}
-                      placeholder="Amount USDC"
-                      step="0.01" min="0.01"
-                      style={{
-                        flex: 1, background: 'rgba(1, 13, 31, 0.75)',
-                        border: '1px solid var(--border-default)', borderRadius: 7,
-                        padding: '8px 10px', color: 'var(--text-primary)', fontSize: 11,
-                        outline: 'none', boxSizing: 'border-box',
-                        fontFamily: 'JetBrains Mono, monospace',
-                      }}
-                    />
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+                      <input
+                        type="number"
+                        value={sendAmount}
+                        onChange={e => { setSendAmount(e.target.value); setSendError('') }}
+                        placeholder="Amount USDC"
+                        step="0.0001" min="0.0001"
+                        style={{
+                          width: '100%', background: 'rgba(1, 13, 31, 0.75)',
+                          border: '1px solid var(--border-default)', borderRadius: 7,
+                          padding: '8px 48px 8px 10px', color: 'var(--text-primary)', fontSize: 11,
+                          outline: 'none', boxSizing: 'border-box',
+                          fontFamily: 'JetBrains Mono, monospace',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleMax}
+                        disabled={loadingMax || !maxSendable || parseFloat(maxSendable) <= 0}
+                        title="Withdraw max sendable amount (leaves room for network gas fee)"
+                        style={{
+                          position: 'absolute', right: 5,
+                          background: 'rgba(56, 189, 248, 0.15)',
+                          border: '1px solid rgba(56, 189, 248, 0.45)',
+                          borderRadius: 4, padding: '2px 6px',
+                          color: '#38bdf8', fontSize: 9.5, fontWeight: 700,
+                          fontFamily: 'JetBrains Mono, monospace',
+                          cursor: 'pointer', transition: 'all 0.15s ease',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(56, 189, 248, 0.3)' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(56, 189, 248, 0.15)' }}
+                      >
+                        MAX
+                      </button>
+                    </div>
                     <button
                       type="submit"
                       disabled={sending}
@@ -374,12 +439,19 @@ function SessionWalletDropdown() {
                     </button>
                   </div>
                   {sendError && (
-                    <div style={{ color: 'var(--no-color)', fontSize: 10, marginTop: 6, lineHeight: 1.4 }}>
+                    <div style={{
+                      color: '#f87171',
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                      borderRadius: 6, padding: '6px 8px',
+                      fontSize: 10.5, marginTop: 7, lineHeight: 1.4,
+                    }}>
                       ⚠ {sendError}
                     </div>
                   )}
-                  <div style={{ color: 'var(--text-secondary)', fontSize: 10, marginTop: 6 }}>
-                    Balance: {usdcBalance} USDC
+                  
+                  <div style={{ fontSize: 9.5, color: '#64748b', marginTop: 6, lineHeight: 1.3 }}>
+                    ℹ Reserves ~0.005 USDC for Arc network gas fee.
                   </div>
                 </div>
               </form>
@@ -435,7 +507,7 @@ function SessionWalletDropdown() {
             {/* ── Divider ── */}
             <div style={{ borderTop: '1px solid var(--border-subtle)', marginBottom: 10 }} />
 
-            {/* ── 5. Recent Activity ── */}
+            {/* ── 5. Recent Activity (Vertical Slider) ── */}
             <div>
               <div style={{
                 fontSize: 10, fontWeight: 600, letterSpacing: '0.14em',
@@ -446,12 +518,23 @@ function SessionWalletDropdown() {
               </div>
 
               {txHistory.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '12px 0', color: 'var(--text-tertiary)', fontSize: 11, fontStyle: 'italic' }}>
+                <div style={{ textAlign: 'center', padding: '14px 0', color: 'var(--text-tertiary)', fontSize: 11, fontStyle: 'italic' }}>
                   No activity yet
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {displayedTxs.map((tx) => (
+                <div
+                  className="session-wallet-tx-scroll"
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    maxHeight: 185,
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    paddingRight: 4,
+                  }}
+                >
+                  {txHistory.map((tx) => (
                     <div
                       key={tx.id}
                       style={{
@@ -460,6 +543,7 @@ function SessionWalletDropdown() {
                         background: 'rgba(6, 42, 81, 0.25)',
                         border: '1px solid var(--border-subtle)',
                         transition: 'background 0.15s', cursor: 'default',
+                        flexShrink: 0,
                       }}
                       onMouseEnter={e => e.currentTarget.style.background = 'rgba(6, 42, 81, 0.45)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'rgba(6, 42, 81, 0.25)'}
@@ -488,23 +572,6 @@ function SessionWalletDropdown() {
                   ))}
                 </div>
               )}
-
-              {txHistory.length > 5 && !showAll && (
-                <button
-                  onClick={() => setShowAll(true)}
-                  style={{
-                    background: 'none', border: 'none',
-                    color: 'var(--text-secondary)', cursor: 'pointer',
-                    fontSize: 10, width: '100%', textAlign: 'center',
-                    padding: '6px 0 0', fontFamily: 'inherit',
-                    transition: 'color 0.2s',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
-                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}
-                >
-                  Show more ↓
-                </button>
-              )}
             </div>
 
           </div>
@@ -512,6 +579,27 @@ function SessionWalletDropdown() {
       )}
 
       <style>{`
+        .session-wallet-tx-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(56, 189, 248, 0.35) rgba(6, 20, 48, 0.5);
+        }
+        .session-wallet-tx-scroll::-webkit-scrollbar {
+          width: 5px;
+        }
+        .session-wallet-tx-scroll::-webkit-scrollbar-track {
+          background: rgba(6, 20, 48, 0.5);
+          border-radius: 6px;
+        }
+        .session-wallet-tx-scroll::-webkit-scrollbar-thumb {
+          background: rgba(56, 189, 248, 0.35);
+          border-radius: 6px;
+          box-shadow: 0 0 6px rgba(56, 189, 248, 0.25);
+          transition: background 0.2s ease;
+        }
+        .session-wallet-tx-scroll::-webkit-scrollbar-thumb:hover {
+          background: rgba(56, 189, 248, 0.7);
+          box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
         @keyframes rcw-drop-in {
           from { opacity: 0; transform: translateY(-6px) scale(0.98); }
           to   { opacity: 1; transform: translateY(0)   scale(1); }
@@ -616,12 +704,15 @@ export default function Navbar() {
 
           {/* State 3: fully onboarded — profile pill */}
           {navState === 3 && profile && (
-            <button onClick={() => navigate('/profile')} className="profile-pill" style={{ border: 'none', background: 'none' }}>
+            <button onClick={() => navigate('/profile')} className="profile-pill">
               <div className="profile-pill-avatar">
                 {profile.pfp_url
-                  ? <img src={profile.pfp_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                  : profile.name?.[0]?.toUpperCase() || '?'
+                  ? <img src={profile.pfp_url} alt={profile.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} onError={e => { e.currentTarget.style.display = 'none'; const sib = e.currentTarget.nextSibling as HTMLElement; if (sib) sib.style.display = 'flex' }} />
+                  : null
                 }
+                <span style={{ display: profile.pfp_url ? 'none' : 'flex' }}>
+                  {profile.name?.[0]?.toUpperCase() || '?'}
+                </span>
               </div>
               <span className="profile-pill-name">{profile.name}</span>
             </button>
@@ -647,3 +738,5 @@ export default function Navbar() {
     </>
   )
 }
+
+
