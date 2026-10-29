@@ -52,18 +52,26 @@ interface Props {
 // -- DescriptionText -----------------------------------------------------------
 function DescriptionText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false)
-  const LIMIT = 150
-  if (text.length <= LIMIT) return <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{text}</p>
+  if (!text) return null
+  const isLong = text.length > 150 || text.split('\n').length > 3
+  if (!isLong) {
+    return (
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        {text}
+      </div>
+    )
+  }
+  const display = expanded ? text : text.slice(0, 150).trim() + '... '
   return (
-    <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
-      {expanded ? text : text.slice(0, LIMIT) + '...'}
+    <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+      <span>{display}</span>
       <button
-        onClick={() => setExpanded(v => !v)}
-        style={{ background: 'none', border: 'none', color: 'var(--accent-bright)', fontSize: 12, cursor: 'pointer', marginLeft: 4, padding: 0 }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpanded(v => !v) }}
+        style={{ background: 'none', border: 'none', color: 'var(--accent-bright)', fontSize: 12, fontWeight: 600, cursor: 'pointer', marginLeft: 4, padding: 0 }}
       >
         {expanded ? 'Show less' : 'Read more'}
       </button>
-    </p>
+    </div>
   )
 }
 
@@ -476,7 +484,7 @@ export default function PredictionCard({ prediction: p, onUpdate }: Props) {
         <div>
           <div className="prediction-card-title" style={{ marginBottom: 6 }}>{p.title}</div>
           {p.description && (
-            <div className="prediction-card-desc">
+            <div className="prediction-card-desc" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               <DescriptionText text={p.description} />
             </div>
           )}

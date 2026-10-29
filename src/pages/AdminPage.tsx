@@ -1329,10 +1329,10 @@ export default function AdminPage() {
                             </span>
                             <span style={{ fontSize: 10, color: 'var(--yes-color)', fontWeight: 700 }}>OPEN</span>
                           </div>
-                          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.3 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.3, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                             {cTitle || 'Your prediction title will appear here...'}
                           </div>
-                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.4 }}>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                             {cDesc || 'Resolution criteria and context will show here...'}
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, fontFamily: 'JetBrains Mono, monospace' }}>

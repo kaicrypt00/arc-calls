@@ -70,18 +70,18 @@ const DEFAULT_RANK_STYLE: RankConfig = {
 function DescriptionText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false)
   if (!text) return null
-  const isLong = text.length > 130 || text.split('\n').length > 2
+  const isLong = text.length > 150 || text.split('\n').length > 3
   if (!isLong) {
     return (
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
         {text}
       </div>
     )
   }
-  const display = expanded ? text : `${text.slice(0, 130).trim()}... `
+  const display = expanded ? text : `${text.slice(0, 150).trim()}... `
   return (
-    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-      {display}
+    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+      <span>{display}</span>
       <span
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpanded(!expanded) }}
         style={{
@@ -458,13 +458,19 @@ export default function PollTab() {
                             fontWeight: 600,
                             color: 'var(--text-primary)',
                             verticalAlign: 'middle',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
                           }}>
                             {poll.title}
                           </span>
                         </div>
 
-                        {/* Description text with 2-line truncation + Read more */}
-                        <DescriptionText text={poll.description} />
+                        {/* Description text with truncation + Read more */}
+                        {poll.description && (
+                          <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            <DescriptionText text={poll.description} />
+                          </div>
+                        )}
 
                         {/* Progress bar */}
                         <div style={{ marginBottom: 8 }}>
@@ -703,7 +709,7 @@ export default function PollTab() {
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
                   }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{w.poll_title}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{w.poll_title}</div>
                       <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>submitted by {w.submitted_by_name}</div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
