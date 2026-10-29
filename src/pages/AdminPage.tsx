@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useSessionWallet, getMaxFeePerGas, publicClient } from '../contexts/SessionWalletContext'
 import { arc } from '../config'
 import { useToast } from '../contexts/ToastContext'
-import { supabase, type DbPrediction, type DbTemplate, type DbPoll, type DbXMonitorLog } from '../lib/supabase'
+import { supabase, type DbPrediction, type DbTemplate, type DbPoll, type DbPollHistory, type DbXMonitorLog } from '../lib/supabase'
 import { BETTING_POOL_ADDRESS, POLL_REGISTRY_ADDRESS, ADMIN_WALLETS } from '../constants'
 import { BETTING_POOL_ABI, POLL_REGISTRY_ABI } from '../abis'
 import Navbar from '../components/Navbar'
@@ -99,6 +99,8 @@ export default function AdminPage() {
   const [predictions, setPredictions] = useState<DbPrediction[]>([])
   const [templates, setTemplates]     = useState<DbTemplate[]>([])
   const [polls, setPolls]             = useState<DbPoll[]>([])
+  const [pollHistory, setPollHistory] = useState<DbPollHistory[]>([])
+  const [pollSubTab, setPollSubTab]   = useState<'active' | 'history'>('active')
   const [resolverLogs, setResolverLogs] = useState<DbXMonitorLog[]>([])
   // Resolver tab state
   const [resolverSubTab, setResolverSubTab] = useState<'watching' | 'history'>('watching')
@@ -119,6 +121,8 @@ export default function AdminPage() {
   const [declareModal, setDeclareModal] = useState<DbPrediction | null>(null)
   const [extendModal, setExtendModal]   = useState<{ pred: DbPrediction; newDeadline: string } | null>(null)
   const [deleteModal, setDeleteModal]   = useState<DbPrediction | null>(null)
+  const [deletePollModal, setDeletePollModal] = useState<DbPoll | null>(null)
+  const [deletePollHistoryModal, setDeletePollHistoryModal] = useState<DbPollHistory | null>(null)
   const [bannerModal, setBannerModal]   = useState<DbPrediction | null>(null)
   const [editBannerFile, setEditBannerFile] = useState<File | null>(null)
   const [editBannerPreview, setEditBannerPreview] = useState<string | null>(null)
@@ -154,11 +158,12 @@ export default function AdminPage() {
 
   const fetchAll = async () => {
     setLoading(true)
-    const [{ data: preds }, { data: tmpl }, { data: p }, { data: logs }] = await Promise.all([
+    const [{ data: preds }, { data: tmpl }, { data: p }, { data: logs }, { data: histPolls }] = await Promise.all([
       supabase.from('predictions_display').select('*').order('id', { ascending: false }),
       supabase.from('templates').select('*').order('created_at', { ascending: false }),
       supabase.from('polls').select('*').eq('status', 'active').order('vote_count', { ascending: false }),
       supabase.from('x_monitor_logs').select('*').order('checked_at', { ascending: false }).limit(50),
+      supabase.from('poll_history').select('*').order('round_number', { ascending: false }),
     ])
     if (preds) {
       setPredictions(preds as DbPrediction[])
@@ -183,8 +188,9 @@ export default function AdminPage() {
       }
     }
     if (tmpl)  setTemplates(tmpl as DbTemplate[])
-    if (p)     setPolls(p as DbPoll[])
-    if (logs)  setResolverLogs(logs as DbXMonitorLog[])
+    if (p)         setPolls(p as DbPoll[])
+    if (histPolls) setPollHistory(histPolls as DbPollHistory[])
+    if (logs)      setResolverLogs(logs as DbXMonitorLog[])
     setLoading(false)
   }
 
@@ -849,24 +855,58 @@ export default function AdminPage() {
     }
   }
 
-  const handleDeletePoll = async (pollId: number) => {
-    if (!walletClient) return
-    showPending('Deleting poll on-chain...')
+  const doDeletePoll = async (poll: DbPoll) => {
+    setIsBusy(true)
+    showPending('Deleting poll from website...')
+    setDeletePollModal(null)
     try {
-      const maxFeePerGas = await getMaxFeePerGas()
-      const hash = await adminWriteContract({
-        address: POLL_REGISTRY_ADDRESS,
-        abi: POLL_REGISTRY_ABI as never,
-        functionName: 'deletePoll',
-        args: [BigInt(pollId)],
-        maxFeePerGas,
-      })
-      await publicClient.waitForTransactionReceipt({ hash })
-      showConfirmed(hash, 'Poll deleted!')
-      await supabase.from('polls').update({ status: 'deleted' }).eq('id', pollId)
+      if (walletClient) {
+        try {
+          const maxFeePerGas = await getMaxFeePerGas()
+          const hash = await adminWriteContract({
+            address: POLL_REGISTRY_ADDRESS,
+            abi: POLL_REGISTRY_ABI as never,
+            functionName: 'deletePoll',
+            args: [BigInt(poll.id)],
+            maxFeePerGas,
+          })
+          await publicClient.waitForTransactionReceipt({ hash })
+          await supabase.from('wallet_transactions').insert({
+            wallet_address: address,
+            type: 'admin_action',
+            label: `Deleted poll #${poll.id}: ${poll.title.slice(0, 45)}`,
+            tx_hash: hash,
+            created_at: new Date().toISOString(),
+          })
+        } catch (onChainErr) {
+          console.warn('[AdminPage] on-chain deletePoll bypassed or failed:', onChainErr)
+        }
+      }
+
+      await supabase.from('poll_votes').delete().eq('poll_id', poll.id)
+      await supabase.from('polls').delete().eq('id', poll.id)
+
+      showConfirmed(undefined, `Poll #${poll.id} deleted from website!`)
       await fetchAll()
     } catch (e) {
-      showFailed((e as Error).message?.slice(0, 80) ?? 'Delete poll failed')
+      showFailed((e as Error).message?.slice(0, 90) ?? 'Delete poll failed')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const doDeletePollHistory = async (item: DbPollHistory) => {
+    setIsBusy(true)
+    showPending('Removing poll from history...')
+    setDeletePollHistoryModal(null)
+    try {
+      await supabase.from('poll_history').delete().eq('id', item.id)
+      showConfirmed(undefined, 'Poll history entry removed!')
+      await fetchAll()
+    } catch (e) {
+      showFailed((e as Error).message?.slice(0, 90) ?? 'Remove poll history failed')
+    } finally {
+      setIsBusy(false)
     }
   }
 
@@ -1652,33 +1692,140 @@ export default function AdminPage() {
           {tab === 'polls' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 24, alignItems: 'start' }}>
               <div>
-                <div className="admin-section-title">
-                  Active Polls <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontSize: 10 }}>{polls.length} active</span>
+                {/* Sub-tabs: Active Polls vs Round History */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => setPollSubTab('active')}
+                      style={{
+                        padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                        background: pollSubTab === 'active' ? 'rgba(54,97,132,0.35)' : 'rgba(6,24,48,0.5)',
+                        border: `1px solid ${pollSubTab === 'active' ? 'rgba(90,138,176,0.6)' : 'rgba(54,97,132,0.2)'}`,
+                        color: pollSubTab === 'active' ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                        cursor: 'pointer', transition: 'all 150ms',
+                      }}
+                    >
+                      Active Polls ({polls.length})
+                    </button>
+                    <button
+                      onClick={() => setPollSubTab('history')}
+                      style={{
+                        padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                        background: pollSubTab === 'history' ? 'rgba(54,97,132,0.35)' : 'rgba(6,24,48,0.5)',
+                        border: `1px solid ${pollSubTab === 'history' ? 'rgba(90,138,176,0.6)' : 'rgba(54,97,132,0.2)'}`,
+                        color: pollSubTab === 'history' ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                        cursor: 'pointer', transition: 'all 150ms',
+                      }}
+                    >
+                      Round History ({pollHistory.length})
+                    </button>
+                  </div>
                 </div>
-                {polls.length === 0 ? (
-                  <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)', background: 'var(--bg-glass)', borderRadius: 16, border: '1px solid var(--border-subtle)' }}>
-                    No active polls
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {polls.map(poll => (
-                      <div key={poll.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, transition: 'border-color 200ms' }}
-                        onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--border-default)')}
-                        onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                            <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' }}>#{poll.id}</span>
-                            <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{poll.title}</span>
+
+                {pollSubTab === 'active' ? (
+                  polls.length === 0 ? (
+                    <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)', background: 'var(--bg-glass)', borderRadius: 16, border: '1px solid var(--border-subtle)' }}>
+                      No active polls
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {polls.map(poll => (
+                        <div key={poll.id} style={{
+                          background: 'rgba(6,18,38,0.75)', border: '1px solid rgba(54,97,132,0.22)',
+                          borderRadius: 14, padding: '16px 18px', display: 'flex', justifyContent: 'space-between',
+                          alignItems: 'center', gap: 16, transition: 'border-color 150ms ease, box-shadow 150ms ease',
+                        }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.borderColor = 'rgba(90,138,176,0.5)'
+                            e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.3)'
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.borderColor = 'rgba(54,97,132,0.22)'
+                            e.currentTarget.style.boxShadow = 'none'
+                          }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' }}>#{poll.id}</span>
+                              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{poll.title}</span>
+                            </div>
+                            {poll.description && (
+                              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.4 }}>
+                                {poll.description.length > 140 ? `${poll.description.slice(0, 140)}…` : poll.description}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                              by <span style={{ color: 'var(--accent-bright)', fontWeight: 600 }}>{poll.created_by_name}</span>
+                              <span style={{ marginLeft: 12, color: 'var(--accent-primary)', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>{poll.vote_count} votes</span>
+                              {poll.created_at && (
+                                <span style={{ marginLeft: 12, color: 'var(--text-tertiary)' }}>{new Date(poll.created_at).toLocaleDateString()}</span>
+                              )}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                            by <span style={{ color: 'var(--accent-bright)' }}>{poll.created_by_name}</span>
-                            <span style={{ marginLeft: 12, color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' }}>{poll.vote_count} votes</span>
-                          </div>
+                          <button
+                            onClick={() => setDeletePollModal(poll)}
+                            disabled={isBusy}
+                            className="admin-action-btn admin-action-danger"
+                            style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                          >
+                            🗑 Delete Poll
+                          </button>
                         </div>
-                        <button onClick={() => handleDeletePoll(poll.id)} className="admin-action-btn admin-action-danger">Delete</button>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  pollHistory.length === 0 ? (
+                    <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)', background: 'var(--bg-glass)', borderRadius: 16, border: '1px solid var(--border-subtle)' }}>
+                      No past round history
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {pollHistory.map(item => (
+                        <div key={item.id} style={{
+                          background: 'rgba(6,18,38,0.75)', border: '1px solid rgba(54,97,132,0.22)',
+                          borderRadius: 14, padding: '16px 18px', display: 'flex', justifyContent: 'space-between',
+                          alignItems: 'center', gap: 16, transition: 'border-color 150ms ease, box-shadow 150ms ease',
+                        }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.borderColor = 'rgba(90,138,176,0.5)'
+                            e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.3)'
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.borderColor = 'rgba(54,97,132,0.22)'
+                            e.currentTarget.style.boxShadow = 'none'
+                          }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(54,97,132,0.2)', color: 'var(--accent-bright)', fontFamily: 'JetBrains Mono, monospace' }}>
+                                Round #{item.round_number}
+                              </span>
+                              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.poll_title}</span>
+                            </div>
+                            {item.description && (
+                              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.4 }}>
+                                {item.description.length > 140 ? `${item.description.slice(0, 140)}…` : item.description}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                              by <span style={{ color: 'var(--accent-bright)', fontWeight: 600 }}>{item.submitted_by_name}</span>
+                              <span style={{ marginLeft: 12, color: 'var(--yes-color)', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>{item.final_vote_count} votes</span>
+                              {item.closed_at && (
+                                <span style={{ marginLeft: 12, color: 'var(--text-tertiary)' }}>Closed: {new Date(item.closed_at).toLocaleDateString()}</span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setDeletePollHistoryModal(item)}
+                            disabled={isBusy}
+                            className="admin-action-btn admin-action-danger"
+                            style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                          >
+                            🗑 Remove from History
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )
                 )}
               </div>
 
@@ -2312,6 +2459,105 @@ export default function AdminPage() {
             </button>
             <button
               onClick={() => setDeleteModal(null)}
+              style={{
+                padding: '11px 20px', borderRadius: 8, fontSize: 13,
+                background: 'transparent', border: '1px solid rgba(54,97,132,0.3)',
+                color: 'var(--text-secondary)', cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </AdminModal>
+      )}
+
+{/* 6. Delete Poll Modal */}
+      {deletePollModal && (
+        <AdminModal
+          title={`🗑 Delete Poll — #${deletePollModal.id}`}
+          onClose={() => setDeletePollModal(null)}
+        >
+          <div style={{
+            background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)',
+            borderRadius: 10, padding: 14, fontSize: 13, color: 'var(--no-color)', marginBottom: 16, lineHeight: 1.5,
+          }}>
+            ⚠️ Are you sure you want to permanently delete this poll from the website?
+            This will immediately remove it from active polls and clear all recorded votes.
+          </div>
+          <div style={{
+            fontSize: 12, color: 'var(--text-secondary)', marginBottom: 18,
+            background: 'rgba(6,24,48,0.5)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 12,
+          }}>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {deletePollModal.title}
+            </div>
+            <div>
+              Submitted by: <span style={{ color: 'var(--accent-bright)' }}>{deletePollModal.created_by_name}</span> · {deletePollModal.vote_count} votes
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={() => doDeletePoll(deletePollModal)}
+              disabled={isBusy}
+              style={{
+                flex: 1, padding: '11px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                background: 'rgba(239,68,68,0.2)', color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.4)',
+                cursor: isBusy ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Yes, Permanently Delete
+            </button>
+            <button
+              onClick={() => setDeletePollModal(null)}
+              style={{
+                padding: '11px 20px', borderRadius: 8, fontSize: 13,
+                background: 'transparent', border: '1px solid rgba(54,97,132,0.3)',
+                color: 'var(--text-secondary)', cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </AdminModal>
+      )}
+
+      {/* 7. Remove Poll History Modal */}
+      {deletePollHistoryModal && (
+        <AdminModal
+          title={`🗑 Remove from History — Round #${deletePollHistoryModal.round_number}`}
+          onClose={() => setDeletePollHistoryModal(null)}
+        >
+          <div style={{
+            background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)',
+            borderRadius: 10, padding: 14, fontSize: 13, color: 'var(--no-color)', marginBottom: 16, lineHeight: 1.5,
+          }}>
+            ⚠️ Are you sure you want to permanently remove this poll from past round history?
+          </div>
+          <div style={{
+            fontSize: 12, color: 'var(--text-secondary)', marginBottom: 18,
+            background: 'rgba(6,24,48,0.5)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 12,
+          }}>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {deletePollHistoryModal.poll_title}
+            </div>
+            <div>
+              Round {deletePollHistoryModal.round_number} · Winner with {deletePollHistoryModal.final_vote_count} votes
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={() => doDeletePollHistory(deletePollHistoryModal)}
+              disabled={isBusy}
+              style={{
+                flex: 1, padding: '11px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                background: 'rgba(239,68,68,0.2)', color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.4)',
+                cursor: isBusy ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Yes, Remove from History
+            </button>
+            <button
+              onClick={() => setDeletePollHistoryModal(null)}
               style={{
                 padding: '11px 20px', borderRadius: 8, fontSize: 13,
                 background: 'transparent', border: '1px solid rgba(54,97,132,0.3)',
