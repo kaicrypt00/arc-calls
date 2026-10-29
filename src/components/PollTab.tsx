@@ -137,7 +137,7 @@ export default function PollTab() {
 
         if (profs) {
           const map: Record<string, { name: string; pfp_url?: string }> = {}
-          profs.forEach(pr => {
+          profs.forEach((pr: { wallet_address: string; name: string; pfp_url?: string }) => {
             map[pr.wallet_address.toLowerCase()] = { name: pr.name, pfp_url: pr.pfp_url }
           })
           setProfilesMap(prev => ({ ...prev, ...map }))

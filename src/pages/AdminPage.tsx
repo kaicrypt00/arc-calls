@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useAccount, useWalletClient } from 'wagmi'
 import { useNavigate } from 'react-router-dom'
 import { useSessionWallet, getMaxFeePerGas, publicClient } from '../contexts/SessionWalletContext'
@@ -91,7 +91,7 @@ export default function AdminPage() {
     params: { address: `0x${string}`; abi: never; functionName: string; args?: unknown[]; maxFeePerGas?: bigint }
   ): Promise<`0x${string}`> => {
     if (!walletClient) throw new Error('Main admin wallet not connected')
-    return walletClient.writeContract({ ...params, chain: arc, account: walletClient.account! })
+    return walletClient.writeContract({ ...params, chain: arc, account: walletClient.account })
   }
 
   const [tab, setTab] = useState<AdminTab>('predictions')
@@ -181,7 +181,7 @@ export default function AdminPage() {
           const locks: Record<number, boolean> = {}
           activePreds.forEach((pr, idx) => {
             const res = results[idx]
-            if (res.status === 'fulfilled') locks[pr.id] = res.value as boolean
+            if (res.status === 'fulfilled') locks[pr.id] = res.value
           })
           setOnChainLocks(locks)
         }).catch(() => {})
@@ -629,7 +629,7 @@ export default function AdminPage() {
             const winRate   = (newWins + newLosses) > 0 ? (newWins / (newWins + newLosses)) * 100 : 0
             await supabase.from('leaderboard').update({
               wins: newWins,
-              total_pnl: parseFloat(((row.total_pnl || 0) + profit).toFixed(4)),
+              total_pnl: parseFloat(((Number(row.total_pnl) || 0) + profit).toFixed(4)),
               win_rate: parseFloat(winRate.toFixed(2)),
             }).eq('wallet_address', wb.wallet_address)
           }
