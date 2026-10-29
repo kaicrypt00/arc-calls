@@ -32,9 +32,9 @@ export default function CallsPage() {
   const [tab, setTab]                   = useState<Tab>('all_calls')
   const [predictions, setPredictions]   = useState<DbPrediction[] | null>(null)
   const [error, setError]               = useState<string | null>(null)
-  const [visibleCount, setVisibleCount] = useState(8)
+  const [visibleCount, setVisibleCount] = useState(4)
 
-  useEffect(() => { setVisibleCount(8) }, [tab])
+  useEffect(() => { setVisibleCount(4) }, [tab])
 
   const fetchPredictions = useCallback(async () => {
     setError(null)
@@ -131,7 +131,7 @@ export default function CallsPage() {
                 {TABS.map(t => (
                   <button
                     key={t.id}
-                    onClick={() => { setTab(t.id); setVisibleCount(8) }}
+                    onClick={() => { setTab(t.id); setVisibleCount(4) }}
                     className={tab === t.id ? 'active' : ''}
                   >
                     {t.label}
@@ -218,21 +218,89 @@ export default function CallsPage() {
                     </ErrorBoundary>
                   ))}
                 </div>
-                {hasMore && (
-                  <div style={{ textAlign: 'center', marginTop: 32 }}>
-                    <button
-                      onClick={() => setVisibleCount(c => c + 8)}
-                      style={{
-                        padding: '10px 36px',
-                        background: 'rgba(54,97,132,0.15)',
-                        border: '1px solid rgba(54,97,132,0.35)',
-                        borderRadius: 10, color: '#e4e8ec',
-                        fontSize: 14, fontWeight: 600,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Load More
-                    </button>
+
+                {/* Show More / Show Less controls */}
+                {(hasMore || visibleCount > 4) && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 12,
+                    marginTop: 36,
+                  }}>
+                    {hasMore && (
+                      <button
+                        onClick={() => setVisibleCount(c => c + 4)}
+                        style={{
+                          position: 'relative',
+                          padding: '11px 40px',
+                          background: 'linear-gradient(135deg, rgba(54,97,132,0.25) 0%, rgba(90,138,176,0.15) 100%)',
+                          border: '1px solid rgba(90,138,176,0.4)',
+                          borderRadius: 12,
+                          color: '#e4e8ec',
+                          fontSize: 14,
+                          fontWeight: 700,
+                          letterSpacing: '0.5px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          backdropFilter: 'blur(8px)',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          overflow: 'hidden',
+                        }}
+                        onMouseEnter={e => {
+                          const b = e.currentTarget
+                          b.style.background = 'linear-gradient(135deg, rgba(54,97,132,0.45) 0%, rgba(90,138,176,0.3) 100%)'
+                          b.style.borderColor = 'rgba(90,138,176,0.7)'
+                          b.style.transform = 'translateY(-2px)'
+                          b.style.boxShadow = '0 6px 20px rgba(54,97,132,0.3)'
+                        }}
+                        onMouseLeave={e => {
+                          const b = e.currentTarget
+                          b.style.background = 'linear-gradient(135deg, rgba(54,97,132,0.25) 0%, rgba(90,138,176,0.15) 100%)'
+                          b.style.borderColor = 'rgba(90,138,176,0.4)'
+                          b.style.transform = 'translateY(0)'
+                          b.style.boxShadow = 'none'
+                        }}
+                      >
+                        Show More
+                        <span style={{
+                          marginLeft: 8,
+                          fontSize: 11,
+                          color: 'rgba(168,200,224,0.7)',
+                          fontWeight: 600,
+                        }}>
+                          +{Math.min(4, filteredPredictions.length - visibleCount)}
+                        </span>
+                      </button>
+                    )}
+
+                    {visibleCount > 4 && (
+                      <button
+                        onClick={() => setVisibleCount(4)}
+                        style={{
+                          padding: '11px 32px',
+                          background: 'transparent',
+                          border: '1px solid rgba(90,138,176,0.2)',
+                          borderRadius: 12,
+                          color: 'rgba(142,159,176,0.8)',
+                          fontSize: 13,
+                          fontWeight: 600,
+                          letterSpacing: '0.3px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.borderColor = 'rgba(90,138,176,0.45)'
+                          e.currentTarget.style.color = '#e4e8ec'
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.borderColor = 'rgba(90,138,176,0.2)'
+                          e.currentTarget.style.color = 'rgba(142,159,176,0.8)'
+                        }}
+                      >
+                        Show Less
+                      </button>
+                    )}
                   </div>
                 )}
               </>
