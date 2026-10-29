@@ -396,7 +396,20 @@ export default function LeaderboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const lbData = (cachedLeaderboard ?? []).filter(e => Number(e.total_calls ?? 0) > 0 && Number(e.total_pnl ?? 0) > 0)
+  const AGENT_WALLET = '0x50f7067035972795fc9970be26a6489b10065343'
+  const isAgent = (e: DbLeaderboard) => e.is_agent === true || e.wallet_address?.toLowerCase() === AGENT_WALLET
+
+  const lbData = (cachedLeaderboard ?? [])
+    .filter(e => isAgent(e) || (Number(e.total_calls ?? 0) > 0 && Number(e.total_pnl ?? 0) > 0))
+    .sort((a, b) => {
+      const pnlA = Number(a.total_pnl ?? 0)
+      const pnlB = Number(b.total_pnl ?? 0)
+      if (pnlB !== pnlA) return pnlB - pnlA
+      const winRateA = Number(a.win_rate ?? 0)
+      const winRateB = Number(b.win_rate ?? 0)
+      if (winRateB !== winRateA) return winRateB - winRateA
+      return Number(b.total_volume ?? 0) - Number(a.total_volume ?? 0)
+    })
   const entries: DbLeaderboard[] = lbData
   const stats: ArenaStats = {
     totalVolume:   lbData.reduce((s, e) => s + Number(e.total_volume ?? 0), 0),
