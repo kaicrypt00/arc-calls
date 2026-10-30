@@ -118,10 +118,24 @@ function SessionWalletDropdown() {
       .finally(() => setLoadingMax(false))
   }, [showSend, sessionWallet])
 
-  const handleMax = () => {
-    if (maxSendable && parseFloat(maxSendable) > 0) {
-      setSendAmount(maxSendable)
-      setSendError('')
+  const handleMax = async () => {
+    if (!sessionWallet) return
+    setLoadingMax(true)
+    try {
+      const fresh = await getMaxSendableUSDC(sessionWallet.address)
+      setMaxSendable(fresh)
+      if (fresh && parseFloat(fresh) > 0) {
+        setSendAmount(fresh)
+        setSendError('')
+      }
+    } catch {
+      // fall back to cached value if re-fetch fails
+      if (maxSendable && parseFloat(maxSendable) > 0) {
+        setSendAmount(maxSendable)
+        setSendError('')
+      }
+    } finally {
+      setLoadingMax(false)
     }
   }
 
@@ -458,7 +472,7 @@ function SessionWalletDropdown() {
                   )}
                   
                   <div style={{ fontSize: 9.5, color: '#64748b', marginTop: 6, lineHeight: 1.3 }}>
-                    ℹ Reserves ~0.005 USDC for Arc network gas fee.
+                    ℹ A small amount is reserved to cover the Arc network gas fee on withdrawal.
                   </div>
                 </div>
               </form>
