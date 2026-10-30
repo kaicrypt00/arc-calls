@@ -25,7 +25,7 @@ const STATUS_COLORS: Record<string, { bg: string; color: string; border: string 
   yes_wins: { bg: 'rgba(74,222,128,0.15)',  color: '#4ade80', border: 'rgba(74,222,128,0.4)'   },
   no_wins:  { bg: 'rgba(248,113,113,0.15)', color: '#f87171', border: 'rgba(248,113,113,0.4)'  },
   refunded: { bg: 'rgba(142,159,176,0.12)', color: '#8e9fb0', border: 'rgba(142,159,176,0.3)'  },
-  deleted:  { bg: 'rgba(100,100,100,0.12)', color: '#888888', border: 'rgba(100,100,100,0.3)'  },
+
 }
 
 function StatusBadge({ status, isLocked }: { status: string; isLocked?: boolean }) {
@@ -121,6 +121,7 @@ export default function AdminPage() {
   const [declareModal, setDeclareModal] = useState<DbPrediction | null>(null)
   const [extendModal, setExtendModal]   = useState<{ pred: DbPrediction; newDeadline: string } | null>(null)
   const [deleteModal, setDeleteModal]   = useState<DbPrediction | null>(null)
+  const [refundModal, setRefundModal]   = useState<DbPrediction | null>(null)
   const [deletePollModal, setDeletePollModal] = useState<DbPoll | null>(null)
   const [deletePollHistoryModal, setDeletePollHistoryModal] = useState<DbPollHistory | null>(null)
   const [bannerModal, setBannerModal]   = useState<DbPrediction | null>(null)
@@ -691,35 +692,14 @@ export default function AdminPage() {
     }
   }
 
-  // Delete Action
+  // Remove from History — Supabase-only cleanup for already-settled markets.
+  // The on-chain record is permanent. Bettors can always claim via the blockchain.
+  // This only hides the market from the website history tab.
   const doDelete = async (pred: DbPrediction) => {
-    if (!walletClient) { showFailed('Connect your main wallet first'); return }
     setIsBusy(true)
-    showPending('Deleting prediction...')
+    showPending('Removing from history...')
     setDeleteModal(null)
     try {
-      const isSettled = ['yes_wins', 'no_wins', 'refunded'].includes(pred.status)
-      if (!isSettled) {
-        // Active prediction: remove on-chain
-        const maxFeePerGas = await getMaxFeePerGas()
-        const hash = await adminWriteContract({
-          address: BETTING_POOL_ADDRESS,
-          abi: BETTING_POOL_ABI as never,
-          functionName: 'deletePrediction',
-          args: [BigInt(pred.id)],
-          maxFeePerGas,
-        })
-        await publicClient.waitForTransactionReceipt({ hash })
-        await supabase.from('wallet_transactions').insert({
-          wallet_address: address,
-          type: 'admin_action',
-          label: `Deleted prediction #${pred.id}: ${pred.title.slice(0, 45)}`,
-          tx_hash: hash,
-          created_at: new Date().toISOString(),
-        })
-      }
-
-      // Cleanup Supabase & Banner Storage
       if (pred.banner_url) {
         const parts = pred.banner_url.split('/banners/')
         if (parts.length > 1) {
@@ -728,11 +708,47 @@ export default function AdminPage() {
       }
       await supabase.from('predictions_display').delete().eq('id', pred.id)
       await supabase.from('bets').delete().eq('prediction_id', pred.id)
-
-      showConfirmed(undefined, `Prediction #${pred.id} deleted!`)
+      showConfirmed(undefined, `Market #${pred.id} removed from history!`)
       await fetchAll()
     } catch (e) {
-      showFailed((e as Error).message?.slice(0, 90) ?? 'Delete failed')
+      showFailed((e as Error).message?.slice(0, 90) ?? 'Remove failed')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  // Refund Market — marks an OPEN or LOCKED market as REFUNDED on-chain.
+  // Both YES and NO bettors can then claim their full original stake back.
+  // This is a permanent on-chain state change — it cannot be undone.
+  // The market stays visible in history so bettors know to claim their refund.
+  const doRefund = async (pred: DbPrediction) => {
+    if (!walletClient) { showFailed('Connect your main wallet first'); return }
+    setIsBusy(true)
+    showPending('Marking market as refunded on-chain...')
+    setRefundModal(null)
+    try {
+      const maxFeePerGas = await getMaxFeePerGas()
+      const hash = await adminWriteContract({
+        address: BETTING_POOL_ADDRESS,
+        abi: BETTING_POOL_ABI as never,
+        functionName: 'refundPrediction',
+        args: [BigInt(pred.id)],
+        maxFeePerGas,
+      })
+      await publicClient.waitForTransactionReceipt({ hash })
+      await supabase.from('predictions_display').update({ status: 'refunded' }).eq('id', pred.id)
+      await supabase.from('bets').update({ result: 'refunded' }).eq('prediction_id', pred.id)
+      await supabase.from('wallet_transactions').insert({
+        wallet_address: address,
+        type: 'admin_action',
+        label: `Refunded market #${pred.id}: ${pred.title.slice(0, 45)}`,
+        tx_hash: hash,
+        created_at: new Date().toISOString(),
+      })
+      showConfirmed(hash, `Market #${pred.id} refunded — all bettors can now claim back!`)
+      await fetchAll()
+    } catch (e) {
+      showFailed((e as Error).message?.slice(0, 90) ?? 'Refund failed')
     } finally {
       setIsBusy(false)
     }
@@ -987,6 +1003,46 @@ export default function AdminPage() {
           {/* TAB 1: PREDICTIONS & MANAGEMENT                                        */}
           {/* ══════════════════════════════════════════════════════════════════════ */}
           {tab === 'predictions' && (
+            <>
+            {/* ── One-time setup: link new BettingPool to AchievementRegistry ── */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)',
+              borderRadius: 12, padding: '10px 16px', marginBottom: 20, gap: 12,
+            }}>
+              <span style={{ fontSize: 12, color: 'rgba(74,222,128,0.8)' }}>
+                🔗 <strong>One-time setup:</strong> After redeploying BettingPool, run this once to re-link the AchievementRegistry.
+              </span>
+              <button
+                onClick={async () => {
+                  if (!walletClient) { showFailed('Connect your main wallet first'); return }
+                  showPending('Linking BettingPool to AchievementRegistry...')
+                  try {
+                    const maxFeePerGas = await getMaxFeePerGas()
+                    const hash = await adminWriteContract({
+                      address: '0x9c703A763c81e74aE84DB3a7F6D88E87F0D60d91',
+                      abi: [{ name: 'setBettingPool', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: '_bettingPool', type: 'address' }], outputs: [] }] as never,
+                      functionName: 'setBettingPool',
+                      args: [BETTING_POOL_ADDRESS],
+                      maxFeePerGas,
+                    })
+                    await publicClient.waitForTransactionReceipt({ hash })
+                    showConfirmed(hash, 'AchievementRegistry linked to new BettingPool!')
+                  } catch (e) {
+                    showFailed((e as Error).message?.slice(0, 90) ?? 'Link failed')
+                  }
+                }}
+                disabled={isBusy}
+                style={{
+                  background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)',
+                  color: '#4ade80', padding: '6px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                  cursor: isBusy ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                }}
+              >
+                🔗 Link New BettingPool to Achievements
+              </button>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(360px, 420px) 1fr', gap: 24, alignItems: 'start' }}>
 
               {/* ── LEFT COLUMN: Templates + Create Form ── */}
@@ -1664,13 +1720,13 @@ export default function AdminPage() {
                                   🖼 Edit Banner
                                 </button>
 
-                                {/* Delete */}
+                                {/* Refund Market */}
                                 <button
-                                  onClick={() => setDeleteModal(p)}
+                                  onClick={() => setRefundModal(p)}
                                   disabled={isBusy}
                                   className="admin-action-btn admin-action-danger"
                                 >
-                                  🗑 Delete
+                                  💸 Refund Market
                                 </button>
                               </>
                             )}
@@ -1684,6 +1740,7 @@ export default function AdminPage() {
               </div>
 
             </div>
+            </>
           )}
 
           {/* ══════════════════════════════════════════════════════════════════════ */}
@@ -2432,18 +2489,55 @@ export default function AdminPage() {
         </AdminModal>
       )}
 
-      {/* 4. Delete Prediction Modal */}
+      {/* 4. Refund Market Modal */}
+      {refundModal && (
+        <AdminModal
+          title={`💸 Refund Market — #${refundModal.id}`}
+          onClose={() => setRefundModal(null)}
+        >
+          <div style={{
+            background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)',
+            borderRadius: 10, padding: 14, fontSize: 13, color: 'var(--text-primary)', marginBottom: 18, lineHeight: 1.5,
+          }}>
+            ⚠️ This marks the market as <strong>REFUNDED</strong> on-chain. Both YES and NO bettors can claim their full original stake back. This cannot be undone.
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={() => doRefund(refundModal)}
+              disabled={isBusy}
+              style={{
+                flex: 1, padding: '11px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                background: 'rgba(251,191,36,0.15)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.4)',
+                cursor: isBusy ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Yes, Refund Market
+            </button>
+            <button
+              onClick={() => setRefundModal(null)}
+              style={{
+                padding: '11px 20px', borderRadius: 8, fontSize: 13,
+                background: 'transparent', border: '1px solid rgba(54,97,132,0.3)',
+                color: 'var(--text-secondary)', cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </AdminModal>
+      )}
+
+      {/* 4b. Remove from History Modal */}
       {deleteModal && (
         <AdminModal
-          title={`🗑 Delete Prediction — #${deleteModal.id}`}
+          title={`🗑 Remove from History — #${deleteModal.id}`}
           onClose={() => setDeleteModal(null)}
         >
           <div style={{
             background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)',
-            borderRadius: 10, padding: 14, fontSize: 13, color: 'var(--no-color)', marginBottom: 18, lineHeight: 1.5,
+            borderRadius: 10, padding: 14, fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18, lineHeight: 1.5,
           }}>
-            ⚠️ Are you sure you want to permanently delete this prediction?
-            This will remove all associated database records, bets, and storage files.
+            This hides the market from the website history. The on-chain record is permanent — bettors can always claim winnings or refunds via the blockchain.
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button
@@ -2455,7 +2549,7 @@ export default function AdminPage() {
                 cursor: isBusy ? 'not-allowed' : 'pointer',
               }}
             >
-              Yes, Permanently Delete
+              Yes, Remove from History
             </button>
             <button
               onClick={() => setDeleteModal(null)}

@@ -27,8 +27,8 @@ export const BETTING_POOL_ABI = [
   { name: 'lockBetting',      type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'id', type: 'uint256' }], outputs: [] },
   { name: 'unlockBetting',    type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'id', type: 'uint256' }], outputs: [] },
   { name: 'refundPrediction', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'id', type: 'uint256' }], outputs: [] },
-  { name: 'deletePrediction', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'id', type: 'uint256' }], outputs: [] },
   { name: 'extendDeadline',   type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'id', type: 'uint256' }, { name: 'newDeadline', type: 'uint256' }], outputs: [] },
+  { name: 'transferOwnership', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'newOwner', type: 'address' }], outputs: [] },
   { name: 'getPrediction',    type: 'function', stateMutability: 'view', inputs: [{ name: 'id', type: 'uint256' }], outputs: [{ name: '', type: 'tuple', components: [{ name: 'id', type: 'uint256' }, { name: 'title', type: 'string' }, { name: 'description', type: 'string' }, { name: 'bannerUrl', type: 'string' }, { name: 'deadline', type: 'uint256' }, { name: 'status', type: 'uint8' }, { name: 'yesPool', type: 'uint256' }, { name: 'noPool', type: 'uint256' }, { name: 'totalBettors', type: 'uint256' }, { name: 'createdAt', type: 'uint256' }] }] },
   { name: 'getUserBet',       type: 'function', stateMutability: 'view', inputs: [{ name: 'id', type: 'uint256' }, { name: 'user', type: 'address' }], outputs: [{ name: 'side', type: 'uint8' }, { name: 'amount', type: 'uint256' }, { name: 'claimed', type: 'bool' }] },
   { name: 'isBettingLocked',  type: 'function', stateMutability: 'view', inputs: [{ name: 'id', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] },
@@ -37,6 +37,12 @@ export const BETTING_POOL_ABI = [
   { name: 'totalPredictions', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint256' }] },
   { name: 'getBetCount',      type: 'function', stateMutability: 'view', inputs: [{ name: 'user', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
   { name: 'getBettors',       type: 'function', stateMutability: 'view', inputs: [{ name: 'id', type: 'uint256' }], outputs: [{ name: '', type: 'address[]' }] },
+  { name: 'ADMIN_ONE',        type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'address' }] },
+  { name: 'ADMIN_TWO',        type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'address' }] },
+  { name: 'MIN_BET',          type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint256' }] },
+  { name: 'LOCKOUT_PERIOD',   type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint256' }] },
+  { name: 'owner',            type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'address' }] },
+  { name: 'usdcToken',        type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'address' }] },
   {
     name: 'BetPlaced', type: 'event',
     inputs: [
@@ -55,10 +61,24 @@ export const BETTING_POOL_ABI = [
       { name: 'createdAt', type: 'uint256', indexed: false },
     ],
   },
+  {
+    name: 'WinnerDeclared', type: 'event',
+    inputs: [
+      { name: 'predictionId', type: 'uint256', indexed: true },
+      { name: 'winningSide', type: 'uint8', indexed: false },
+      { name: 'winningPool', type: 'uint256', indexed: false },
+      { name: 'losingPool', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    name: 'PredictionRefunded', type: 'event',
+    inputs: [{ name: 'id', type: 'uint256', indexed: true }],
+  },
 ] as const
 
 export const ACHIEVEMENT_REGISTRY_ABI = [
   { name: 'mintBadge',         type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'badge', type: 'uint8' }], outputs: [] },
+  { name: 'setBettingPool',    type: 'function', stateMutability: 'nonpayable', inputs: [{ name: '_bettingPool', type: 'address' }], outputs: [] },
   { name: 'hasBadge',          type: 'function', stateMutability: 'view', inputs: [{ name: 'wallet', type: 'address' }, { name: 'badge', type: 'uint8' }], outputs: [{ name: '', type: 'bool' }] },
   { name: 'getAllBadges',       type: 'function', stateMutability: 'view', inputs: [{ name: 'wallet', type: 'address' }], outputs: [{ name: 'starter', type: 'bool' }, { name: 'caller', type: 'bool' }, { name: 'oracle', type: 'bool' }, { name: 'og', type: 'bool' }] },
   { name: 'getEligibleBadges', type: 'function', stateMutability: 'view', inputs: [{ name: 'wallet', type: 'address' }], outputs: [{ name: 'eligible', type: 'uint256[]' }] },

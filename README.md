@@ -40,7 +40,7 @@ Arc Calls lets users stake USDC on YES or NO outcomes for real Arc community eve
 | Contract | Address | Purpose |
 |---|---|---|
 | ProfileRegistry | `0xBc199573Bfaea3c3Ee55c55B090C518ed82385Ce` | One profile per wallet. Gas only to mint. |
-| BettingPool | `0xD7b60891729bC02F8C786Dafb479CD6152f57925` | Holds all USDC bets. Min bet: 0.01 USDC. |
+| BettingPool | `0xa8e01ece16038D481f13a6AaAb692b2FD0Caa1d8` | Holds all USDC bets. Min bet: 0.01 USDC. |
 | AchievementRegistry | `0x9c703A763c81e74aE84DB3a7F6D88E87F0D60d91` | Four onchain badges tied to bet activity. |
 | PollRegistry | `0xf100f704f00A9F44426d1Be16935b4Db11F8BFf2` | Community poll submission and voting. |
 
