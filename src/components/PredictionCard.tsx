@@ -371,7 +371,12 @@ export default function PredictionCard({ prediction: p, onUpdate }: Props) {
       showConfirmed(hash, `Call placed! ${betAmount} USDC on ${betSide}`)
       const wallet = sessionWallet!.address.toLowerCase()
       const amtFloat = parseFloat(betAmount)
+      // Unique non-sequential bet ID: random 32-bit uint — avoids guessable sequential IDs
+      const arr = new Uint32Array(1)
+      crypto.getRandomValues(arr)
+      const uniqueBetId = arr[0]
       await supabase.from('bets').insert({
+        id: uniqueBetId,
         prediction_id: p.id, wallet_address: wallet, side: betSide.toLowerCase(),
         amount: amtFloat, result: 'pending', payout: 0, tx_hash: hash,
         created_at: new Date().toISOString(),
