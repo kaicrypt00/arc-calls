@@ -95,10 +95,40 @@ export function DataPrefetchProvider({ children }: { children: ReactNode }) {
     }
   }, [refetchPredictions, refetchLeaderboard])
 
-  // Cold start: fetch if cache is empty
+  // Cold start: consume the already-in-flight window.__prefetch__ promises fired from
+  // index.html before React even mounted, falling back to a fresh fetch if they are absent.
   useEffect(() => {
-    if (!allPredictions) refetchPredictions()
-    if (!leaderboard) refetchLeaderboard()
+    const pre = (window as unknown as { __prefetch__?: { predictions?: Promise<unknown>; leaderboard?: Promise<unknown> } }).__prefetch__
+
+    if (!allPredictions) {
+      const p = pre?.predictions
+      if (p) {
+        p.then((data) => {
+          if (Array.isArray(data) && data.length > 0) {
+            setAllPredictions(data as DbPrediction[])
+            setCached('predictions_all', data)
+          }
+          setPredictionsReady(true)
+        }).catch(() => { setPredictionsReady(true) })
+      } else {
+        refetchPredictions()
+      }
+    }
+
+    if (!leaderboard) {
+      const p = pre?.leaderboard
+      if (p) {
+        p.then((data) => {
+          if (Array.isArray(data) && data.length > 0) {
+            setLeaderboard(data as DbLeaderboard[])
+            setCached('leaderboard_top50', data)
+          }
+          setLeaderboardReady(true)
+        }).catch(() => { setLeaderboardReady(true) })
+      } else {
+        refetchLeaderboard()
+      }
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

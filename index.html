@@ -11,9 +11,88 @@
     <meta property="og:description" content="Community prediction market on Arc Mainnet. Make your calls." />
     <meta property="og:image" content="/arc-logo.png" />
     <title>Arc Calls</title>
+
+    <!-- Phase 1: Pure CSS pre-loader — shows instantly before React mounts, zero JS cost -->
+    <style>
+      #arc-preloader {
+        position: fixed;
+        inset: 0;
+        z-index: 999999;
+        background: #020617;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: opacity 0.35s ease;
+      }
+      #arc-preloader.fade {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .apl-ring {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 2.5px solid transparent;
+        border-top-color: rgba(56,189,248,0.9);
+        border-right-color: rgba(56,189,248,0.2);
+        animation: apl-spin 0.9s linear infinite;
+      }
+      @keyframes apl-spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
   </head>
   <body>
+    <!-- Phase 1: Pre-loader visible before React JS even parses -->
+    <div id="arc-preloader">
+      <div class="apl-ring"></div>
+    </div>
+
     <div id="root"></div>
+
+    <!-- Phase 2: Fire Supabase REST fetches immediately — in parallel with JS bundle download.
+         Results stored in window.__prefetch__ so DataPrefetchContext can consume them
+         instead of firing duplicate requests after React mounts. -->
+    <script>
+      (function () {
+        var url = '%VITE_SUPABASE_URL%'
+        var key = '%VITE_SUPABASE_ANON_KEY%'
+        if (!url || !key || url.startsWith('%')) return // dev fallback — env not injected
+
+        var headers = { 'apikey': key, 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' }
+
+        var pPredictions = fetch(
+          url + '/rest/v1/predictions_display?select=*&status=neq.deleted&order=deadline.asc',
+          { headers: headers }
+        ).then(function (r) { return r.ok ? r.json() : [] }).catch(function () { return [] })
+
+        var pLeaderboard = fetch(
+          url + '/rest/v1/leaderboard?select=*&order=total_pnl.desc&limit=100',
+          { headers: headers }
+        ).then(function (r) { return r.ok ? r.json() : [] }).catch(function () { return [] })
+
+        // Store the in-flight promises so DataPrefetchContext can await them
+        window.__prefetch__ = {
+          predictions: pPredictions,
+          leaderboard: pLeaderboard,
+        }
+
+        // Remove the CSS pre-loader once React root mounts (root div gets children)
+        var observer = new MutationObserver(function () {
+          var root = document.getElementById('root')
+          if (root && root.children.length > 0) {
+            var el = document.getElementById('arc-preloader')
+            if (el) {
+              el.classList.add('fade')
+              setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el) }, 380)
+            }
+            observer.disconnect()
+          }
+        })
+        observer.observe(document.getElementById('root'), { childList: true })
+      })()
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
