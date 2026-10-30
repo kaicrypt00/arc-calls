@@ -472,7 +472,7 @@ function SessionWalletDropdown() {
                   )}
                   
                   <div style={{ fontSize: 9.5, color: '#64748b', marginTop: 6, lineHeight: 1.3 }}>
-                    ℹ A small amount is reserved to cover the Arc network gas fee on withdrawal.
+                    ℹ Always reserve small amount to cover the gas fee on withdrawal.
                   </div>
                 </div>
               </form>
