@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAccount, useSwitchChain } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { isAddress } from 'viem'
-import { useSessionWallet, getMaxSendableUSDC } from '../contexts/SessionWalletContext'
+import { useSessionWallet } from '../contexts/SessionWalletContext'
 import { useProfile } from '../contexts/ProfileContext'
 import { useToast } from '../contexts/ToastContext'
 import { supabase, type DbWalletTransaction } from '../lib/supabase'
@@ -42,9 +42,7 @@ function SessionWalletDropdown() {
   const [sending, setSending] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [txHistory, setTxHistory] = useState<DbWalletTransaction[]>([])
-  // Max sendable = balance minus gas reserve (Arc native gas = ERC20 USDC, same token)
-  const [maxSendable, setMaxSendable] = useState<string | null>(null)
-  const [loadingMax, setLoadingMax] = useState(false)
+
   const dropRef = useRef<HTMLDivElement>(null)
 
   const loadRecentTxs = useCallback(async () => {
@@ -103,40 +101,6 @@ function SessionWalletDropdown() {
     navigator.clipboard.writeText(sessionWallet.address)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
-  }
-
-  // Fetch max sendable whenever Send panel opens (gas-aware calculation)
-  useEffect(() => {
-    if (!showSend || !sessionWallet) {
-      setMaxSendable(null)
-      return
-    }
-    setLoadingMax(true)
-    getMaxSendableUSDC(sessionWallet.address)
-      .then(max => setMaxSendable(max))
-      .catch(() => setMaxSendable(null))
-      .finally(() => setLoadingMax(false))
-  }, [showSend, sessionWallet])
-
-  const handleMax = async () => {
-    if (!sessionWallet) return
-    setLoadingMax(true)
-    try {
-      const fresh = await getMaxSendableUSDC(sessionWallet.address)
-      setMaxSendable(fresh)
-      if (fresh && parseFloat(fresh) > 0) {
-        setSendAmount(fresh)
-        setSendError('')
-      }
-    } catch {
-      // fall back to cached value if re-fetch fails
-      if (maxSendable && parseFloat(maxSendable) > 0) {
-        setSendAmount(maxSendable)
-        setSendError('')
-      }
-    } finally {
-      setLoadingMax(false)
-    }
   }
 
   /** Turn raw contract/EVM error into a clean user-facing message */
@@ -404,30 +368,11 @@ function SessionWalletDropdown() {
                         style={{
                           width: '100%', background: 'rgba(1, 13, 31, 0.75)',
                           border: '1px solid var(--border-default)', borderRadius: 7,
-                          padding: '8px 48px 8px 10px', color: 'var(--text-primary)', fontSize: 11,
+                          padding: '8px 10px', color: 'var(--text-primary)', fontSize: 11,
                           outline: 'none', boxSizing: 'border-box',
                           fontFamily: 'JetBrains Mono, monospace',
                         }}
                       />
-                      <button
-                        type="button"
-                        onClick={handleMax}
-                        disabled={loadingMax || !maxSendable || parseFloat(maxSendable) <= 0}
-                        title="Withdraw max sendable amount (leaves room for network gas fee)"
-                        style={{
-                          position: 'absolute', right: 5,
-                          background: 'rgba(56, 189, 248, 0.15)',
-                          border: '1px solid rgba(56, 189, 248, 0.45)',
-                          borderRadius: 4, padding: '2px 6px',
-                          color: '#38bdf8', fontSize: 9.5, fontWeight: 700,
-                          fontFamily: 'JetBrains Mono, monospace',
-                          cursor: 'pointer', transition: 'all 0.15s ease',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(56, 189, 248, 0.3)' }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(56, 189, 248, 0.15)' }}
-                      >
-                        MAX
-                      </button>
                     </div>
                     <button
                       type="submit"
