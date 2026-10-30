@@ -7,6 +7,7 @@ import { useSessionWallet } from './SessionWalletContext'
 import { PROFILE_REGISTRY_ADDRESS, EVENT_SESSION_WALLET_READY } from '../constants'
 import { PROFILE_REGISTRY_ABI } from '../abis'
 import { supabase, type DbProfile } from '../lib/supabase'
+import { useDataPrefetch } from './DataPrefetchContext'
 
 interface ProfileContextValue {
   profile: DbProfile | null
@@ -26,6 +27,8 @@ const PROFILE_CACHE_KEY = 'arc_profile_'
 export function ProfileProvider({ children }: { children: ReactNode }) {
   const { address, isConnected, status } = useAccount()
   const { sessionWallet, hasSessionWallet } = useSessionWallet()
+  const dataPrefetch = useDataPrefetch()
+  const dataReady = dataPrefetch?.dataReady ?? false
 
   const [profile, setProfile] = useState<DbProfile | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
@@ -169,10 +172,12 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     }
   }, [sessionWallet, status, hasStoredSession, refreshProfile])
 
-  // Gate app initialization until min duration has elapsed AND wallet/profile state is resolved
+  // Gate app initialization until min duration + data + wallet/profile state all resolved
   useEffect(() => {
     if (appInitialized) return
     if (!minTimePassed) return
+    // Wait for Supabase data to be ready (predictions + leaderboard)
+    if (!dataReady) return
 
     // Still reconnecting / connecting wallet
     if (status === 'reconnecting' || status === 'connecting') return
@@ -191,11 +196,11 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
       setAppInitialized(true)
     }
-  }, [appInitialized, minTimePassed, status, hasStoredSession, sessionWallet, profileLoading, profileFetched])
+  }, [appInitialized, minTimePassed, dataReady, status, hasStoredSession, sessionWallet, profileLoading, profileFetched])
 
-  // Safety net: after 6s unblock no matter what so app never gets stuck
+  // Safety net: after 8s unblock no matter what so app never gets stuck
   useEffect(() => {
-    const t = setTimeout(() => setAppInitialized(true), 6000)
+    const t = setTimeout(() => setAppInitialized(true), 8000)
     return () => clearTimeout(t)
   }, [])
 

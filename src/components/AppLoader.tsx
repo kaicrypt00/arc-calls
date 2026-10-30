@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useProfile } from '../contexts/ProfileContext'
 import ArcLogo from './ArcLogo'
 
-const LABELS = ['Initializing Arena', 'Connecting Wallet', 'Loading Calls & Data', 'Almost Ready']
+const LABELS = ['Initializing Arena', 'Connecting Wallet', 'Fetching Calls & Leaderboard', 'Almost Ready']
 
 export default function AppLoader({ children }: { children?: React.ReactNode }) {
   const { appInitialized } = useProfile()

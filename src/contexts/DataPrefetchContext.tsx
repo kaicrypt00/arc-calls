@@ -24,6 +24,7 @@ export function getCached<T>(key: string): T | null {
 interface DataCacheValue {
   allPredictions: DbPrediction[] | null
   leaderboard: DbLeaderboard[] | null
+  dataReady: boolean
   refetchPredictions: () => Promise<void>
   refetchLeaderboard: () => Promise<void>
   warmCache: () => Promise<void>
@@ -39,6 +40,14 @@ export function DataPrefetchProvider({ children }: { children: ReactNode }) {
   const [leaderboard, setLeaderboard] = useState<DbLeaderboard[] | null>(
     () => getCached<DbLeaderboard[]>('leaderboard_top50')
   )
+  // dataReady: true once both fetches have resolved (or cache hit on mount)
+  const [predictionsReady, setPredictionsReady] = useState(
+    () => !!getCached<DbPrediction[]>('predictions_all')
+  )
+  const [leaderboardReady, setLeaderboardReady] = useState(
+    () => !!getCached<DbLeaderboard[]>('leaderboard_top50')
+  )
+  const dataReady = predictionsReady && leaderboardReady
   const warmingRef = useRef(false)
 
   const refetchPredictions = useCallback(async () => {
@@ -49,14 +58,12 @@ export function DataPrefetchProvider({ children }: { children: ReactNode }) {
       .order('deadline', { ascending: true })
     if (error) {
       console.error('[DataPrefetchContext] predictions fetch error:', error.message)
-      // Resolve to empty array so UI doesn't stay in perpetual loading state
       setAllPredictions(prev => prev ?? [])
-      return
-    }
-    if (data) {
+    } else if (data) {
       setAllPredictions(data as DbPrediction[])
       setCached('predictions_all', data)
     }
+    setPredictionsReady(true)
   }, [])
 
   const refetchLeaderboard = useCallback(async () => {
@@ -68,12 +75,11 @@ export function DataPrefetchProvider({ children }: { children: ReactNode }) {
     if (error) {
       console.error('[DataPrefetchContext] leaderboard fetch error:', error.message)
       setLeaderboard(prev => prev ?? [])
-      return
-    }
-    if (data) {
+    } else if (data) {
       setLeaderboard(data as DbLeaderboard[])
       setCached('leaderboard_top50', data)
     }
+    setLeaderboardReady(true)
   }, [])
 
   const warmCache = useCallback(async () => {
@@ -99,6 +105,7 @@ export function DataPrefetchProvider({ children }: { children: ReactNode }) {
     <DataCacheContext.Provider value={{
       allPredictions,
       leaderboard,
+      dataReady,
       refetchPredictions,
       refetchLeaderboard,
       warmCache,
