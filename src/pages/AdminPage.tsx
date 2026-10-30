@@ -1004,45 +1004,6 @@ export default function AdminPage() {
           {/* ══════════════════════════════════════════════════════════════════════ */}
           {tab === 'predictions' && (
             <>
-            {/* ── One-time setup: link new BettingPool to AchievementRegistry ── */}
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)',
-              borderRadius: 12, padding: '10px 16px', marginBottom: 20, gap: 12,
-            }}>
-              <span style={{ fontSize: 12, color: 'rgba(74,222,128,0.8)' }}>
-                🔗 <strong>One-time setup:</strong> After redeploying BettingPool, run this once to re-link the AchievementRegistry.
-              </span>
-              <button
-                onClick={async () => {
-                  if (!walletClient) { showFailed('Connect your main wallet first'); return }
-                  showPending('Linking BettingPool to AchievementRegistry...')
-                  try {
-                    const maxFeePerGas = await getMaxFeePerGas()
-                    const hash = await adminWriteContract({
-                      address: '0x9c703A763c81e74aE84DB3a7F6D88E87F0D60d91',
-                      abi: [{ name: 'setBettingPool', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: '_bettingPool', type: 'address' }], outputs: [] }] as never,
-                      functionName: 'setBettingPool',
-                      args: [BETTING_POOL_ADDRESS],
-                      maxFeePerGas,
-                    })
-                    await publicClient.waitForTransactionReceipt({ hash })
-                    showConfirmed(hash, 'AchievementRegistry linked to new BettingPool!')
-                  } catch (e) {
-                    showFailed((e as Error).message?.slice(0, 90) ?? 'Link failed')
-                  }
-                }}
-                disabled={isBusy}
-                style={{
-                  background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)',
-                  color: '#4ade80', padding: '6px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600,
-                  cursor: isBusy ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-                }}
-              >
-                🔗 Link New BettingPool to Achievements
-              </button>
-            </div>
-
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(360px, 420px) 1fr', gap: 24, alignItems: 'start' }}>
 
               {/* ── LEFT COLUMN: Templates + Create Form ── */}
