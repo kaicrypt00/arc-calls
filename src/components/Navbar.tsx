@@ -161,16 +161,23 @@ function SessionWalletDropdown() {
       setSendError('Amount exceeds your USDC balance')
       return
     }
-    // Pre-flight client-side gas check
-    if (maxSendable !== null && amt > parseFloat(maxSendable) + 0.0001) {
-      setSendError(`Leaves no room for gas. Max sendable: ${maxSendable} USDC — click Max to auto-fill.`)
+    // Refresh MAX right before send — gas price may have changed since panel opened
+    let freshMax = maxSendable
+    try {
+      freshMax = await getMaxSendableUSDC(sessionWallet!.address)
+      setMaxSendable(freshMax)
+    } catch { /* keep stale value */ }
+
+    // Pre-flight client-side gas check with fresh MAX
+    if (freshMax !== null && parseFloat(freshMax) >= 0 && amt > parseFloat(freshMax) + 0.0001) {
+      setSendError(`Leaves no room for gas. Max sendable: ${freshMax} USDC — click Max to auto-fill.`)
       return
     }
 
     setSending(true)
     showPending(`Sending ${sendAmount} USDC...`)
     try {
-      const txHash = await sendUSDC(sendTo as `0x${string}`, sendAmount)
+      const txHash = await sendUSDC(sendTo, sendAmount)
       showConfirmed(txHash, `Sent ${sendAmount} USDC ✓`)
 
       supabase.from('wallet_transactions').insert({

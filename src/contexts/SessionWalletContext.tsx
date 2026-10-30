@@ -70,24 +70,48 @@ export async function getMaxFeePerGas(): Promise<bigint> {
  * Sending 100% of the balance leaves nothing for gas, causing a revert.
  *
  * Gas reserve calculation:
- *   - ERC20 transfer ~65 000 gas units
- *   - Convert native wei cost → ERC20 USDC units (÷ 1e12, since 18-dec native vs 6-dec ERC20)
- *   - Add 50% safety buffer for gas price spikes
+ *   1. Try to estimateGas the actual transfer call for this wallet — most accurate.
+ *      Falls back to 80 000 units if estimate fails (wallet has zero balance, etc).
+ *   2. Multiply by maxFeePerGas (already 2× baseFee from getMaxFeePerGas).
+ *   3. Convert native wei → ERC20 USDC units (÷ 1e12, 18-dec → 6-dec bridge on Arc).
+ *   4. Add an extra 2× multiplier on top so gas spikes between fetch and submit are covered.
+ *      Arc gas can vary 2-3× in a block so a tight buffer causes intermittent failures.
  */
 export async function getMaxSendableUSDC(walletAddress: `0x${string}`): Promise<string> {
   try {
+    const USDC_CONTRACT = '0x3600000000000000000000000000000000000000' as const
     const balanceRaw = await publicClient.readContract({
-      address: '0x3600000000000000000000000000000000000000' as `0x${string}`,
+      address: USDC_CONTRACT,
       abi: [{ name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] }],
       functionName: 'balanceOf',
       args: [walletAddress],
     })
+
+    if (balanceRaw === 0n) return '0'
+
     const maxFeePerGas = await getMaxFeePerGas()
-    const GAS_UNITS = 65_000n
-    const gasCostNativeWei = GAS_UNITS * maxFeePerGas
-    // Convert from 18-dec native to 6-dec ERC20 USDC units (÷ 1e12)
+
+    // Try to estimate actual gas for a 1-unit transfer — most accurate for this wallet
+    let gasUnits = 80_000n
+    try {
+      const estimated = await publicClient.estimateGas({
+        account: walletAddress,
+        to: USDC_CONTRACT,
+        data: ('0xa9059cbb' +
+          walletAddress.slice(2).padStart(64, '0') +
+          '1'.padStart(64, '0')) as `0x${string}`,
+      })
+      gasUnits = estimated + estimated / 4n // +25% on top of real estimate
+    } catch {
+      // estimateGas can fail if balance is too low to simulate — keep fallback
+    }
+
+    const gasCostNativeWei = gasUnits * maxFeePerGas
+    // Convert from 18-dec native wei to 6-dec ERC20 USDC units (Arc bridge: ÷ 1e12)
     const gasCostUSDCRaw = gasCostNativeWei / 10n ** 12n
-    const gasReserve = gasCostUSDCRaw + gasCostUSDCRaw / 2n // +50% buffer
+    // 2× multiplier: Arc gas can spike 2-3× between fetch and submit
+    const gasReserve = gasCostUSDCRaw * 2n
+
     const maxSendableRaw = balanceRaw > gasReserve ? balanceRaw - gasReserve : 0n
     return parseFloat(formatUnits(maxSendableRaw, 6)).toFixed(4)
   } catch {
@@ -219,16 +243,28 @@ export function SessionWalletProvider({ children }: { children: ReactNode }) {
       args: [sessionWallet.address],
     })
 
-    // Estimate the gas cost of this transfer in ERC20 USDC units (6 dec).
-    // Arc uses a 12-decimal bridge between native wei (18 dec) and ERC20 USDC (6 dec).
-    // Gas estimate: ~65 000 gas units for an ERC20 transfer.
+    // Estimate gas cost for this transfer in ERC20 USDC units (6 dec).
+    // On Arc: native gas token and ERC20 USDC share the same balance pool.
+    // Arc bridge: 18-dec native wei → 6-dec ERC20 USDC = divide by 1e12.
     const maxFeePerGas = await getMaxFeePerGas()
-    const GAS_UNITS = 65_000n
-    const gasCostNativeWei = GAS_UNITS * maxFeePerGas
-    // Convert from native wei (18 dec) to ERC20 USDC units (6 dec): divide by 1e12
+
+    // Try real estimateGas for this exact call; fall back to 80k if it fails
+    let gasUnits = 80_000n
+    try {
+      const est = await publicClient.estimateGas({
+        account: sessionWallet.address,
+        to: USDC_ADDRESS,
+        data: ('0xa9059cbb' +
+          (to as string).slice(2).padStart(64, '0') +
+          amountRaw.toString(16).padStart(64, '0')) as `0x${string}`,
+      })
+      gasUnits = est + est / 4n // +25% on top of real estimate
+    } catch { /* keep fallback */ }
+
+    const gasCostNativeWei = gasUnits * maxFeePerGas
     const gasCostUSDCRaw = gasCostNativeWei / 10n ** 12n
-    // Add 50% safety buffer so we always leave room even if gas spikes
-    const gasReserve = gasCostUSDCRaw + gasCostUSDCRaw / 2n
+    // 2× multiplier covers Arc gas spikes between estimate and submit
+    const gasReserve = gasCostUSDCRaw * 2n
 
     if (amountRaw + gasReserve > balanceRaw) {
       const maxSendable = balanceRaw > gasReserve ? balanceRaw - gasReserve : 0n
