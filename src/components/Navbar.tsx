@@ -175,19 +175,6 @@ function SessionWalletDropdown() {
       setSendError('Amount exceeds your USDC balance')
       return
     }
-    // Refresh MAX right before send — gas price may have changed since panel opened
-    let freshMax = maxSendable
-    try {
-      freshMax = await getMaxSendableUSDC(sessionWallet!.address)
-      setMaxSendable(freshMax)
-    } catch { /* keep stale value */ }
-
-    // Pre-flight client-side gas check with fresh MAX
-    if (freshMax !== null && parseFloat(freshMax) >= 0 && amt > parseFloat(freshMax) + 0.0001) {
-      setSendError(`Leaves no room for gas. Max sendable: ${freshMax} USDC — click Max to auto-fill.`)
-      return
-    }
-
     setSending(true)
     showPending(`Sending ${sendAmount} USDC...`)
     try {

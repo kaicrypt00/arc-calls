@@ -109,8 +109,8 @@ export async function getMaxSendableUSDC(walletAddress: `0x${string}`): Promise<
     const gasCostNativeWei = gasUnits * maxFeePerGas
     // Convert from 18-dec native wei to 6-dec ERC20 USDC units (Arc bridge: ÷ 1e12)
     const gasCostUSDCRaw = gasCostNativeWei / 10n ** 12n
-    // 2× multiplier: Arc gas can spike 2-3× between fetch and submit
-    const gasReserve = gasCostUSDCRaw * 2n
+    // +25% flat buffer — same formula as sendUSDC so MAX-filled amount always passes
+    const gasReserve = gasCostUSDCRaw + gasCostUSDCRaw / 4n
 
     const maxSendableRaw = balanceRaw > gasReserve ? balanceRaw - gasReserve : 0n
     return parseFloat(formatUnits(maxSendableRaw, 6)).toFixed(4)
@@ -263,8 +263,8 @@ export function SessionWalletProvider({ children }: { children: ReactNode }) {
 
     const gasCostNativeWei = gasUnits * maxFeePerGas
     const gasCostUSDCRaw = gasCostNativeWei / 10n ** 12n
-    // 2× multiplier covers Arc gas spikes between estimate and submit
-    const gasReserve = gasCostUSDCRaw * 2n
+    // +25% flat buffer — identical to getMaxSendableUSDC so MAX-filled amount always passes
+    const gasReserve = gasCostUSDCRaw + gasCostUSDCRaw / 4n
 
     if (amountRaw + gasReserve > balanceRaw) {
       const maxSendable = balanceRaw > gasReserve ? balanceRaw - gasReserve : 0n
