@@ -144,6 +144,27 @@ async function fetchTweetsViaRss(handle) {
   }
 }
 
+// ─── INTEGRATION DETECTOR ─────────────────────────────────────────────────────
+// Detects posts from @arc announcing a new project going LIVE on Arc mainnet.
+// Valid: "is live on Arc", "Live on Arc", "now live" + Arc context, "fully migrated and live on Arc"
+// Invalid: "coming soon", "will be live", "Arc Studio", "coming to Arc"
+function isLiveIntegration(text) {
+  if (!text) return false
+  const t = text.toLowerCase()
+  // Must reference Arc
+  if (!t.includes('arc')) return false
+  // Exclusions — draft / upcoming announcements
+  if (/coming soon|will be live|coming to arc|arc studio|soon on arc|launching soon/.test(t)) return false
+  // Positive patterns — project is live right now
+  return (
+    /live on arc/.test(t) ||
+    /is live on arc/.test(t) ||
+    /now live/.test(t) ||
+    /fully migrated.{0,40}arc/.test(t) ||
+    /now supports.{0,60}arc/.test(t)
+  )
+}
+
 // ─── CONDITION CHECKERS ───────────────────────────────────────────────────────
 async function checkCondition(prediction, monitor) {
   const {
@@ -257,6 +278,54 @@ async function checkCondition(prediction, monitor) {
         title: latestTweet.title?.slice(0, 100),
       },
       updatedMonitor: isNew ? { ...monitor, last_tweet_id: latestId } : monitor,
+    }
+  }
+
+  // ── new_integration: counts @arc posts announcing live-on-mainnet launches ──
+  if (condition_type === 'new_integration') {
+    const target     = parseInt(threshold ?? '1', 10)
+    const foundIds   = Array.isArray(monitor.found_integration_tweet_ids) ? monitor.found_integration_tweet_ids : []
+    let   foundCount = typeof monitor.found_integration_count === 'number' ? monitor.found_integration_count : 0
+    let   lastMatch  = monitor.last_integration_tweet ?? null
+
+    const tweets = await fetchTweetsViaRss(handle)
+    if (tweets.length === 0) {
+      return { error: `No tweets found via RSS for @${handle}` }
+    }
+
+    const activationTs = activation_timestamp ?? 0
+    // Only look at tweets posted after this resolver was activated, not already counted
+    const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
+
+    const newlyFoundIds = []
+    for (const tweet of candidateTweets) {
+      if (isLiveIntegration(tweet.title ?? '')) {
+        newlyFoundIds.push(tweet.id)
+        if (!lastMatch) lastMatch = { id: tweet.id, text: (tweet.title ?? '').slice(0, 100), date: tweet.pubDate }
+        foundCount++
+        // Log each new match
+        console.log(`    🤝 New integration found: ${(tweet.title ?? '').slice(0, 80)}`)
+        if (foundCount >= target) break
+      }
+    }
+
+    const allFoundIds = [...foundIds, ...newlyFoundIds]
+    const triggered   = foundCount >= target
+
+    const statusLine = lastMatch
+      ? `Found ${foundCount} of ${target} · Last: ${(lastMatch.text ?? '').slice(0, 60)}`
+      : `Found ${foundCount} of ${target} · No integrations yet`
+
+    return {
+      triggered,
+      currentValue: statusLine,
+      rawData: { found_count: foundCount, target, last_match: lastMatch },
+      updatedMonitor: {
+        ...monitor,
+        found_integration_count:    foundCount,
+        found_integration_tweet_ids: allFoundIds,
+        last_integration_tweet:     lastMatch,
+      },
     }
   }
 
@@ -407,9 +476,34 @@ async function run() {
       ? monitor.threshold
       : 'change detected'
 
-    console.log(`    Current: ${result.currentValue}`)
-    console.log(`    Target:  ${thresholdDisplay}`)
-    console.log(`    Status:  ${result.triggered ? '🔒 TRIGGERED' : '👀 monitoring'}`)
+    // ── Professional status display per condition type ──────────────────────
+    if (condition === 'follower_count' || condition === 'tweet_count') {
+      const tgt    = monitor.threshold ? parseInt(monitor.threshold).toLocaleString() : '—'
+      const curNum = parseInt((result.currentValue || '0').replace(/[^0-9]/g, ''))
+      const pct    = monitor.threshold ? Math.round((curNum / parseInt(monitor.threshold)) * 100) : null
+      console.log(`    Current:  ${result.currentValue}`)
+      console.log(`    Target:   ${tgt}`)
+      if (pct !== null) console.log(`    Progress: ${pct}%`)
+    } else if (condition === 'new_post') {
+      console.log(`    Status:   ${result.currentValue}`)
+      if (monitor.last_tweet_id) console.log(`    Baseline: tweet ID ${monitor.last_tweet_id}`)
+    } else if (condition === 'new_integration') {
+      const rd = result.rawData ?? {}
+      console.log(`    Found:    ${rd.found_count ?? 0} of ${rd.target ?? '?'} integrations live on mainnet`)
+      if (rd.last_match) console.log(`    Last:     ${(rd.last_match.text ?? '').slice(0, 70)}`)
+      else               console.log(`    Last:     none yet`)
+    } else if (condition === 'pfp_change' || condition === 'verification_change') {
+      console.log(`    Status:   ${result.currentValue}`)
+    } else if (condition.startsWith('next_tweet') || condition.startsWith('post_')) {
+      const tgt = monitor.threshold ? parseInt(monitor.threshold).toLocaleString() : '—'
+      console.log(`    Current:  ${result.currentValue}`)
+      console.log(`    Target:   ${tgt}`)
+      if (monitor.tracking_tweet_id) console.log(`    Tracking: tweet ID ${monitor.tracking_tweet_id}`)
+    } else {
+      console.log(`    Current:  ${result.currentValue}`)
+      console.log(`    Target:   ${thresholdDisplay}`)
+    }
+    console.log(`    Status:   ${result.triggered ? '🔒 TRIGGERED' : '👀 monitoring'}`)
 
     // Persist updated monitor state (last_tweet_id, tracking_tweet_id, last_pfp_url, etc.)
     if (result.updatedMonitor && JSON.stringify(result.updatedMonitor) !== JSON.stringify(monitor)) {

@@ -1885,7 +1885,7 @@ export default function AdminPage() {
             const nextRunMinutes = () => 60 - new Date().getMinutes()
 
             const needsThreshold = (c: string) =>
-              !['pfp_change', 'new_post', 'verification_change'].includes(c)
+              !['pfp_change', 'new_post', 'verification_change', 'new_integration'].includes(c)
             const needsTweetUrl = (c: string) =>
               ['post_views', 'post_likes', 'post_reposts', 'post_replies'].includes(c)
 
@@ -1923,6 +1923,7 @@ export default function AdminPage() {
               if (!handle)         { showFailed('X handle required'); return }
               if (!condition_type) { showFailed('Condition required'); return }
               if (needsThreshold(condition_type) && !threshold) { showFailed('Target number required'); return }
+              if (condition_type === 'new_integration' && !threshold) { showFailed('Integration target count required'); return }
               if (needsTweetUrl(condition_type) && !tweet_url)  { showFailed('Tweet URL required'); return }
 
               const tweetId = tweet_url ? extractTweetId(tweet_url) : null
@@ -1938,6 +1939,10 @@ export default function AdminPage() {
                 last_pfp_url: null,
                 last_verified: null,
                 tracking_tweet_id: null,
+                // new_integration fields (safe to include for all types — resolver ignores extras)
+                found_integration_count: 0,
+                found_integration_tweet_ids: [],
+                last_integration_tweet: null,
               }
 
               setResolverActivating(pred.id)
@@ -1964,7 +1969,7 @@ export default function AdminPage() {
               next_tweet_likes: 'Next Tweet Likes', next_tweet_reposts: 'Next Tweet Reposts',
               next_tweet_replies: 'Next Tweet Replies', post_views: 'Specific Post Views',
               post_likes: 'Specific Post Likes', post_reposts: 'Specific Post Reposts',
-              post_replies: 'Specific Post Replies',
+              post_replies: 'Specific Post Replies', new_integration: 'New Live Integration on Arc',
             }
 
             const labelSt: React.CSSProperties = {
@@ -2071,9 +2076,58 @@ export default function AdminPage() {
                                       </div>
                                     </div>
                                   )}
-                                  {!hasThresh && (
-                                    <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{current}</div>
-                                  )}
+                                  {!hasThresh && (() => {
+                                    const ct = m.condition_type
+                                    // new_integration: show found count + last match preview
+                                    if (ct === 'new_integration') {
+                                      const mon = pred.x_monitor as Record<string, unknown>
+                                      const foundCount = (mon.found_integration_count as number) ?? 0
+                                      const intTarget  = m.threshold ? parseInt(m.threshold) : 1
+                                      const lastMatch  = mon.last_integration_tweet as { text?: string; date?: string } | null
+                                      return (
+                                        <div style={{ marginTop: 6 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                            <span style={{ color: 'var(--accent-bright)', fontSize: 13, fontWeight: 600 }}>
+                                              {foundCount} of {intTarget}
+                                            </span>
+                                            <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
+                                              integrations found
+                                            </span>
+                                          </div>
+                                          {lastMatch?.text ? (
+                                            <div style={{ color: 'var(--text-secondary)', fontSize: 12, fontStyle: 'italic', marginTop: 2 }}>
+                                              Last: {lastMatch.text.slice(0, 70)}
+                                            </div>
+                                          ) : (
+                                            <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>No integrations found yet</div>
+                                          )}
+                                          {/* mini progress bar */}
+                                          <div style={{ background: 'rgba(54,97,132,0.15)', borderRadius: 4, height: 3, overflow: 'hidden', marginTop: 6 }}>
+                                            <div style={{
+                                              width: `${Math.min(100, Math.round((foundCount / intTarget) * 100))}%`,
+                                              height: '100%',
+                                              background: foundCount >= intTarget ? 'var(--accent-bright)' : 'rgba(54,97,132,0.7)',
+                                              borderRadius: 4, transition: 'width 0.3s',
+                                            }} />
+                                          </div>
+                                        </div>
+                                      )
+                                    }
+                                    // new_post: show last tweet baseline
+                                    if (ct === 'new_post') {
+                                      const mon = pred.x_monitor as Record<string, unknown>
+                                      const baseline = mon.last_tweet_id as string | null
+                                      return (
+                                        <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 4 }}>
+                                          {baseline
+                                            ? <>Watching for new post · Baseline ID: <span style={{ fontFamily: 'monospace' }}>{baseline}</span></>
+                                            : current}
+                                        </div>
+                                      )
+                                    }
+                                    // pfp_change / verification_change — just show current value cleanly
+                                    return <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 4 }}>{current}</div>
+                                  })()}
                                 </div>
                                 <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
                                   {log && (
@@ -2171,6 +2225,9 @@ export default function AdminPage() {
                                       <option value="pfp_change">Profile Picture Changed</option>
                                       <option value="verification_change">Verification Changed</option>
                                     </optgroup>
+                                    <optgroup label="Arc Mainnet">
+                                      <option value="new_integration">New Live Integration on Arc 🤝</option>
+                                    </optgroup>
                                     <optgroup label="Next Tweet (after activation)">
                                       <option value="next_tweet_views">Next Tweet Views</option>
                                       <option value="next_tweet_likes">Next Tweet Likes</option>
@@ -2193,6 +2250,19 @@ export default function AdminPage() {
                                       value={resolverConfigForm.threshold || ''}
                                       onChange={e => setResolverConfigForm(p => ({ ...p, threshold: e.target.value }))}
                                       placeholder="e.g. 100000"
+                                      style={inputSt}
+                                    />
+                                  </div>
+                                )}
+                                {resolverConfigForm.condition_type === 'new_integration' && (
+                                  <div>
+                                    <label style={labelSt}>Number of Integrations Target</label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={resolverConfigForm.threshold || ''}
+                                      onChange={e => setResolverConfigForm(p => ({ ...p, threshold: e.target.value }))}
+                                      placeholder="e.g. 2 (how many live integrations to detect)"
                                       style={inputSt}
                                     />
                                   </div>
