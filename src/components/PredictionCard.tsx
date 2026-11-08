@@ -521,15 +521,10 @@ export default function PredictionCard({ prediction: p, onUpdate }: Props) {
                 <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Ends In</span>
                 <span className="font-mono" style={{ fontSize: 14, color: 'var(--no-color)', fontWeight: 700 }}>{'\u23F1'} BETS CLOSED</span>
               </>
-            ) : p.no_deadline ? (
-              <>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Deadline</span>
-                <RealTimeLabel />
-              </>
             ) : (
               <>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Ends In</span>
-                <CountdownTimer deadline={p.deadline} noDeadline={p.no_deadline} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Resolves</span>
+                <RealTimeLabel />
               </>
             )}
           </div>

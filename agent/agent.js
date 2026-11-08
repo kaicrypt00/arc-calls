@@ -89,12 +89,15 @@ async function getAIDecision(market) {
     `Evaluate market probability and odds.\n` +
     `Respond with strictly one word: YES or NO`
 
+  // OpenRouter free models — updated Nov 2026. Free roster changes frequently;
+  // first entry is the auto-router (always picks a live free model automatically).
   const FREE_MODELS = [
-    'meta-llama/llama-3.3-70b-instruct:free',
-    'meta-llama/llama-3.1-8b-instruct:free',
-    'mistralai/mistral-7b-instruct:free',
-    'google/gemini-2.0-flash-lite:free',
-    'google/gemma-3-4b-it:free',
+    'openrouter/auto',                          // OpenRouter auto-router: always picks a live free model
+    'google/gemma-4-31b-it:free',               // Google Gemma 4 31B — instruction tuned
+    'qwen/qwen3.8-27b:free',                    // Qwen 3.8 27B — strong reasoning
+    'nvidia/nemotron-3-ultra-550b-a55b:free',   // NVIDIA Nemotron Ultra — 1M context
+    'google/gemma-2-9b-it:free',                // Google Gemma 2 9B — reliable fallback
+    'meta-llama/llama-3.2-3b-instruct:free',    // Llama 3.2 3B — lightweight fallback
   ]
 
   if (OPENROUTER_API_KEY) {
