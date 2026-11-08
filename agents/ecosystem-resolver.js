@@ -34,13 +34,15 @@ const BETTING_POOL = process.env.BETTING_POOL_ADDRESS || '0xD7b60891729bC02F8C78
 
 // ─── VALIDATE ENV — fail fast with clear message ──────────────────────────────
 const missing = []
-if (!ADMIN_KEY)      missing.push('RESOLVER_ADMIN_KEY')
-if (!SUPABASE_KEY)   missing.push('SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY')
-if (!BLOCKSCOUT_KEY) missing.push('BLOCKSCOUT_API_KEY')
+if (!ADMIN_KEY)    missing.push('RESOLVER_ADMIN_KEY')
+if (!SUPABASE_KEY) missing.push('SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY')
 if (missing.length > 0) {
   console.error('❌ Missing required GitHub Secrets:', missing.join(', '))
   console.error('   Add in: GitHub repo → Settings → Secrets and variables → Actions')
   process.exit(1)
+}
+if (!BLOCKSCOUT_KEY) {
+  console.warn('⚠️  BLOCKSCOUT_API_KEY not set — using public API (rate limits may apply)')
 }
 
 // ─── MINIMAL ABI — only lockBetting needed ────────────────────────────────────
@@ -79,14 +81,20 @@ const BS_HEADERS = {
   'Accept': 'application/json',
 }
 
+function bsUrl(path) {
+  return BLOCKSCOUT_KEY
+    ? `${BLOCKSCOUT_BASE}${path}?apikey=${BLOCKSCOUT_KEY}`
+    : `${BLOCKSCOUT_BASE}${path}`
+}
+
 async function fetchArcStats() {
-  const res = await fetch(`${BLOCKSCOUT_BASE}/stats?apikey=${BLOCKSCOUT_KEY}`, { headers: BS_HEADERS })
+  const res = await fetch(bsUrl('/stats'), { headers: BS_HEADERS })
   if (!res.ok) throw new Error(`Blockscout /stats HTTP ${res.status}`)
   return res.json()
 }
 
 async function fetchVerifiedContractsCount() {
-  const res = await fetch(`${BLOCKSCOUT_BASE}/smart-contracts?apikey=${BLOCKSCOUT_KEY}`, { headers: BS_HEADERS })
+  const res = await fetch(bsUrl('/smart-contracts'), { headers: BS_HEADERS })
   if (!res.ok) throw new Error(`Blockscout /smart-contracts HTTP ${res.status}`)
   const d = await res.json()
   // next_page_params.smart_contract_id = cursor ID of the 51st item
