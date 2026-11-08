@@ -2134,11 +2134,13 @@ export default function AdminPage() {
                                         {Math.round((Date.now() - new Date(ecoLog.checked_at).getTime()) / 60000)}m ago
                                       </span>
                                     )}
-                                    <div style={{
-                                      width: 8, height: 8, borderRadius: '50%',
-                                      background: ecoLog?.error ? '#F59E0B' : '#4ade80',
-                                      boxShadow: `0 0 6px ${ecoLog?.error ? '#F59E0B' : '#4ade80'}`,
-                                    }} />
+                                    <div
+                                      title={ecoLog?.error ? `Last error: ${ecoLog.error}` : ecoLog ? 'Resolver working' : 'Not yet run'}
+                                      style={{
+                                        width: 8, height: 8, borderRadius: '50%',
+                                        background: !ecoLog ? '#6b7280' : ecoLog.error ? '#F59E0B' : '#4ade80',
+                                        boxShadow: `0 0 6px ${!ecoLog ? '#6b7280' : ecoLog.error ? '#F59E0B' : '#4ade80'}`,
+                                      }} />
                                     <button
                                       onClick={() => handleEcoDeactivate(pred)}
                                       style={{
@@ -2307,11 +2309,13 @@ export default function AdminPage() {
                                       {Math.round((Date.now() - new Date(log.checked_at).getTime()) / 60000)}m ago
                                     </span>
                                   )}
-                                  <div style={{
-                                    width: 8, height: 8, borderRadius: '50%',
-                                    background: log?.error ? '#F59E0B' : '#4ade80',
-                                    boxShadow: `0 0 6px ${log?.error ? '#F59E0B' : '#4ade80'}`,
-                                  }} />
+                                  <div
+                                    title={log?.error ? `Last error: ${log.error}` : log ? 'Resolver working' : 'Not yet run'}
+                                    style={{
+                                      width: 8, height: 8, borderRadius: '50%',
+                                      background: !log ? '#6b7280' : log.error ? '#F59E0B' : '#4ade80',
+                                      boxShadow: `0 0 6px ${!log ? '#6b7280' : log.error ? '#F59E0B' : '#4ade80'}`,
+                                    }} />
                                   <button
                                     onClick={() => handleDeactivate(pred)}
                                     style={{

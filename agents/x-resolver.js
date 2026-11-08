@@ -116,21 +116,27 @@ function parseRssTweets(xml, handle) {
     if (!linkMatch) continue
     const url = linkMatch[1].trim()
     const urlLower = url.toLowerCase()
-    if (!urlLower.includes(`x.com/${handle.toLowerCase()}/status/`)) continue
+    // Keep all posts in the feed — including reposts from other accounts (@arc reposts show
+    // the ORIGINAL author's URL, e.g. x.com/SomeProject/status/..., not x.com/arc/status/...)
+    if (!urlLower.includes('x.com/') || !urlLower.includes('/status/')) continue
 
     const statusMatch = url.match(/\/status\/(\d+)/)
     if (!statusMatch) continue
+
+    // Extract the original author handle from the URL (needed for fxtwitter API fetch)
+    const authorMatch = url.match(/x\.com\/([^/]+)\/status\//)
+    const tweetAuthor = authorMatch ? authorMatch[1] : handle.replace('@', '')
 
     const id          = statusMatch[1]
     const pubDate     = pubMatch ? pubMatch[1].trim() : null
     const timestamp   = pubDate ? Math.floor(new Date(pubDate).getTime() / 1000) : 0
     const title       = titleMatch ? titleMatch[1].trim() : ''
-    // Use description (full body) when available; fall back to title
+    // Use description (full body) when available — richer than title, includes full repost text
     const description = descMatch  ? descMatch[1].trim()  : ''
     // Combined full text — description tends to have more content on reposts
     const fullText    = description.length > title.length ? description : title
 
-    items.push({ id, url, title, fullText, pubDate, timestamp })
+    items.push({ id, url, title, fullText, pubDate, timestamp, tweetAuthor })
   }
   return items
 }
@@ -405,6 +411,8 @@ async function checkCondition(prediction, monitor) {
     for (const tweet of candidateTweets) {
       // Use fullText (RSS description) as full post body — richer than title alone
       const postText = tweet.fullText ?? tweet.title ?? ''
+      const isRepost = tweet.tweetAuthor && tweet.tweetAuthor.toLowerCase() !== handle.replace('@', '').toLowerCase()
+      console.log(`    📄 Checking ${isRepost ? `repost from @${tweet.tweetAuthor}` : 'own tweet'} [${tweet.id}]: "${postText.slice(0, 60)}"`)
 
       // Step 1: Quick pre-filter — if full RSS text shows no live signal, skip fast
       if (!isLiveIntegration(postText)) {
@@ -413,10 +421,12 @@ async function checkCondition(prediction, monitor) {
       }
 
       // Step 2: Fetch complete tweet body via fxtwitter API for deepest verification
+      // Use tweetAuthor from URL — for reposts this is the ORIGINAL author, not @arc
       let verifiedText = postText
       try {
         await new Promise(r => setTimeout(r, 1500)) // rate limit
-        const fullTweet = await fetchTweet(handle, tweet.id)
+        const tweetHandle = tweet.tweetAuthor ?? handle.replace('@', '')
+        const fullTweet = await fetchTweet(tweetHandle, tweet.id)
         if (fullTweet?.text) verifiedText = fullTweet.text
       } catch (_) { /* fall back to RSS text */ }
 
@@ -498,6 +508,8 @@ async function checkCondition(prediction, monitor) {
     const newlyFoundIds = []
     for (const tweet of candidateTweets) {
       const postText = tweet.fullText ?? tweet.title ?? ''
+      const isRepost = tweet.tweetAuthor && tweet.tweetAuthor.toLowerCase() !== handle.replace('@', '').toLowerCase()
+      console.log(`    📄 Checking ${isRepost ? `repost from @${tweet.tweetAuthor}` : 'own tweet'} [${tweet.id}]: "${postText.slice(0, 60)}"`)
 
       // Step 1: Quick pre-filter on full RSS text
       if (!isNewArcTopic(postText)) {
@@ -506,10 +518,12 @@ async function checkCondition(prediction, monitor) {
       }
 
       // Step 2: Fetch complete tweet body via API
+      // Use tweetAuthor from URL — for reposts this is the ORIGINAL author, not @arc
       let verifiedText = postText
       try {
         await new Promise(r => setTimeout(r, 1500))
-        const fullTweet = await fetchTweet(handle, tweet.id)
+        const tweetHandle = tweet.tweetAuthor ?? handle.replace('@', '')
+        const fullTweet = await fetchTweet(tweetHandle, tweet.id)
         if (fullTweet?.text) verifiedText = fullTweet.text
       } catch (_) { /* fall back to RSS text */ }
 
