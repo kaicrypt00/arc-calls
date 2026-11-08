@@ -109,6 +109,9 @@ function parseRssTweets(xml, handle) {
     const pubMatch   = itemXml.match(/<pubDate>([^<]+)<\/pubDate>/)
     const titleMatch = itemXml.match(/<title><!\[CDATA\[([^\]]*)\]\]><\/title>/) ||
                        itemXml.match(/<title>([^<]*)<\/title>/)
+    // Also grab description — fxtwitter puts the FULL tweet text here (title may be truncated)
+    const descMatch  = itemXml.match(/<description><!\[CDATA\[([^\]]*)\]\]><\/description>/) ||
+                       itemXml.match(/<description>([^<]*)<\/description>/)
 
     if (!linkMatch) continue
     const url = linkMatch[1].trim()
@@ -118,12 +121,16 @@ function parseRssTweets(xml, handle) {
     const statusMatch = url.match(/\/status\/(\d+)/)
     if (!statusMatch) continue
 
-    const id        = statusMatch[1]
-    const pubDate   = pubMatch ? pubMatch[1].trim() : null
-    const timestamp = pubDate ? Math.floor(new Date(pubDate).getTime() / 1000) : 0
-    const title     = titleMatch ? titleMatch[1].trim() : ''
+    const id          = statusMatch[1]
+    const pubDate     = pubMatch ? pubMatch[1].trim() : null
+    const timestamp   = pubDate ? Math.floor(new Date(pubDate).getTime() / 1000) : 0
+    const title       = titleMatch ? titleMatch[1].trim() : ''
+    // Use description (full body) when available; fall back to title
+    const description = descMatch  ? descMatch[1].trim()  : ''
+    // Combined full text — description tends to have more content on reposts
+    const fullText    = description.length > title.length ? description : title
 
-    items.push({ id, url, title, pubDate, timestamp })
+    items.push({ id, url, title, fullText, pubDate, timestamp })
   }
   return items
 }
@@ -145,59 +152,93 @@ async function fetchTweetsViaRss(handle) {
 }
 
 // ─── INTEGRATION DETECTOR ─────────────────────────────────────────────────────
-// Detects posts from @arc announcing a new project going LIVE on Arc mainnet.
-// Valid: "is live on Arc", "Live on Arc", "now live" + Arc context, "fully migrated and live on Arc"
-// Invalid: "coming soon", "will be live", "Arc Studio", "coming to Arc"
+// Full-text analysis. Reads the ENTIRE post body before deciding.
+// A tweet passes only if:
+//   • The whole text (not just title) contains a confirmed "live NOW" signal
+//   • No contradictions anywhere in the post ("coming soon", "will be live", etc.)
 function isLiveIntegration(text) {
   if (!text) return false
   const t = text.toLowerCase()
-  // Must reference Arc
   if (!t.includes('arc')) return false
-  // Exclusions — draft / upcoming announcements
-  if (/coming soon|will be live|coming to arc|arc studio|soon on arc|launching soon/.test(t)) return false
-  // Positive patterns — project is live right now
+  // Contradiction check on FULL text — any "coming/upcoming" language anywhere kills it
+  if (/coming soon|will be live|coming to arc|arc studio|soon on arc|launching soon|planned for|will launch|not yet live|expected/.test(t)) return false
+  // Confirmed-live patterns anywhere in the post
   return (
     /live on arc/.test(t) ||
     /is live on arc/.test(t) ||
-    /now live/.test(t) ||
+    /now live/.test(t)      ||
     /fully migrated.{0,40}arc/.test(t) ||
-    /now supports.{0,60}arc/.test(t)
+    /now supports.{0,60}arc/.test(t)   ||
+    /officially live.{0,30}arc/.test(t)
   )
 }
 
-// ─── TOPIC CONTENT FINGERPRINT ────────────────────────────────────────────────
-// Returns a short normalized key so that an original tweet and its repost about
-// the SAME topic/integration are treated as ONE event (not counted twice).
-// Strips common filler words and takes the first 50 chars of the remainder.
-function contentFingerprint(text) {
-  return text
-    .toLowerCase()
-    .replace(/https?:\/\/\S+/g, '')                 // remove URLs
-    .replace(/[^a-z0-9 ]/g, ' ')                    // keep only alphanumeric
-    .replace(/\b(is|on|a|the|an|and|or|in|at|to|of|for|with|arc|live|now|new)\b/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 50)
-}
-
-// ─── NEW TOPIC DETECTOR ───────────────────────────────────────────────────────
-// Detects posts from @arc (originals + reposts) announcing a NEW Arc House
-// community topic/group that is LIVE right now.
-// Valid: "is live on Arc House", "now live", "new group", "announcing", community.arc.io link
-// Invalid: "coming soon", "will be live", "launching soon", "planned", "working on"
+// ─── TOPIC DETECTOR ───────────────────────────────────────────────────────────
+// Full-text analysis of the ENTIRE post.
+// Passes only if the whole text (including repost body) confirms a group IS live.
 function isNewArcTopic(text) {
   if (!text) return false
   const t = text.toLowerCase()
-  // Must reference Arc House community (by URL or by name)
   if (!t.includes('community.arc.io') && !t.includes('arc house')) return false
-  // Exclusions — upcoming / not-yet-live announcements
-  if (/coming soon|will be live|coming to|soon on|working on|planned|launching soon/.test(t)) return false
-  // Positive patterns — group/topic IS live right now
+  // Contradiction check on FULL text
+  if (/coming soon|will be live|coming to|soon on|working on|planned|launching soon|not yet/.test(t)) return false
   return (
-    /is live|now live|live on arc|live!/i.test(t) ||
+    /is live|now live|live on arc|live!/i.test(t)        ||
     /new.*group|new.*community|new.*club|new.*topic/i.test(t) ||
     /launched|announcing/i.test(t)
   )
+}
+
+// ─── ENTITY EXTRACTORS ────────────────────────────────────────────────────────
+// Extract ALL distinct integration names confirmed live in a post.
+// One tweet can announce multiple ("X and Y are both live on Arc") → returns array.
+// If we can't extract a specific name, returns ['_arc_integration_'] as generic marker.
+function extractIntegrationEntities(text) {
+  const found = new Set()
+  const t = text.replace(/https?:\/\/\S+/gi, ' ') // strip URLs first
+
+  // Pattern: "@Handle is [now] live on Arc"
+  for (const m of t.matchAll(/([@\w][\w.\-]{1,30})\s+is\s+(?:now\s+)?live\s+on\s+arc/gi)) {
+    const name = m[1].replace(/^@/, '').trim().toLowerCase()
+    if (name && !/^(it|this|that|the|officially|just)$/.test(name)) found.add(name)
+  }
+  // Pattern: "[Now] live on Arc [mainnet]: ProjectName" or "Live on Arc — ProjectName"
+  for (const m of t.matchAll(/(?:now\s+)?live\s+on\s+arc[\w\s,-]{0,15}[:\-–—]\s*([\w@][\w.\-\s]{1,30})/gi)) {
+    const name = m[1].replace(/@/g, '').trim().toLowerCase().split(/\s+and\s+|\s*[,&]\s*/)[0]
+    if (name && name.length > 1) found.add(name)
+  }
+  // Pattern: "@A and @B are [both] live on Arc"
+  for (const m of t.matchAll(/([@\w][\w.\-]{1,20})\s+and\s+([@\w][\w.\-]{1,20})\s+are\s+(?:both\s+)?live\s+on\s+arc/gi)) {
+    found.add(m[1].replace(/^@/, '').toLowerCase())
+    found.add(m[2].replace(/^@/, '').toLowerCase())
+  }
+  // Generic fallback if patterns match but no name extracted
+  if (found.size === 0 && isLiveIntegration(text)) found.add('_arc_integration_')
+  return [...found]
+}
+
+// Extract ALL distinct Arc House group/topic names confirmed live in a post.
+function extractTopicEntities(text) {
+  const found = new Set()
+  const t = text.replace(/https?:\/\/\S+/gi, ' ')
+
+  // "New Arc House group: GroupName [is live]" / "Arc House topic: GroupName"
+  for (const m of t.matchAll(/(?:new\s+)?arc\s+house\s+(?:group|topic|community|club|space)[:\-–—\s]+([^\n!.,?@]{2,40}?)(?:\s+is\s+(?:now\s+)?live|$)/gi)) {
+    const name = m[1].trim().toLowerCase()
+    if (name && name.length > 1) found.add(name)
+  }
+  // "GroupName is [now] live on Arc House"
+  for (const m of t.matchAll(/([^\n]{2,40}?)\s+is\s+(?:now\s+)?live\s+on\s+arc\s+house/gi)) {
+    const name = m[1].trim().toLowerCase()
+    if (name && name.length > 1 && !/^(it|this|that|the|a|an)$/.test(name)) found.add(name)
+  }
+  // "community.arc.io/groups/name" slug
+  for (const m of t.matchAll(/community\.arc\.io\/(?:groups?|topics?|clubs?)\/([^\s/?#"']+)/gi)) {
+    found.add(m[1].toLowerCase())
+  }
+  // Generic fallback
+  if (found.size === 0 && isNewArcTopic(text)) found.add('_arc_house_topic_')
+  return [...found]
 }
 
 // ─── CONDITION CHECKERS ───────────────────────────────────────────────────────
@@ -320,53 +361,82 @@ async function checkCondition(prediction, monitor) {
   if (condition_type === 'new_integration') {
     const target     = parseInt(threshold ?? '1', 10)
     const foundIds   = Array.isArray(monitor.found_integration_tweet_ids) ? monitor.found_integration_tweet_ids : []
+    // Entity-level dedup: track which specific integrations we already counted (by name)
+    const foundNames = new Set(Array.isArray(monitor.found_integration_names) ? monitor.found_integration_names : [])
     let   foundCount = typeof monitor.found_integration_count === 'number' ? monitor.found_integration_count : 0
     let   lastMatch  = monitor.last_integration_tweet ?? null
 
     const tweets = await fetchTweetsViaRss(handle)
-    // Empty RSS = no tweets available yet (not a resolver failure — keep green dot)
     const activationTs = activation_timestamp ?? 0
     const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
-    // Track the most recent tweet scanned (whether it matched or not) for status display
-    const lastScanned = tweets[0] ? { id: tweets[0].id, text: (tweets[0].title ?? '').slice(0, 100), date: tweets[0].pubDate } : null
+    const lastScanned = tweets[0] ? { id: tweets[0].id, text: (tweets[0].fullText ?? tweets[0].title ?? '').slice(0, 100), date: tweets[0].pubDate } : null
 
     const newlyFoundIds = []
-    // Track fingerprints already counted this session to avoid counting tweet+repost of same topic as 2
-    const seenFingerprints = new Set()
     for (const tweet of candidateTweets) {
-      if (isLiveIntegration(tweet.title ?? '')) {
-        const fp = contentFingerprint(tweet.title ?? '')
-        if (seenFingerprints.has(fp)) {
-          console.log(`    ⏭️  Skipping duplicate integration (same content): ${(tweet.title ?? '').slice(0, 60)}`)
-          newlyFoundIds.push(tweet.id) // mark as seen so we don't re-check it next run
+      // Use fullText (RSS description) as full post body — richer than title alone
+      const postText = tweet.fullText ?? tweet.title ?? ''
+
+      // Step 1: Quick pre-filter — if full RSS text shows no live signal, skip fast
+      if (!isLiveIntegration(postText)) {
+        newlyFoundIds.push(tweet.id)
+        continue
+      }
+
+      // Step 2: Fetch complete tweet body via fxtwitter API for deepest verification
+      let verifiedText = postText
+      try {
+        await new Promise(r => setTimeout(r, 1500)) // rate limit
+        const fullTweet = await fetchTweet(handle, tweet.id)
+        if (fullTweet?.text) verifiedText = fullTweet.text
+      } catch (_) { /* fall back to RSS text */ }
+
+      // Step 3: Re-validate on 100% of the text — catches contradictions in later sentences
+      if (!isLiveIntegration(verifiedText)) {
+        console.log(`    ⚠️  Skipping — full post contradicts live claim: "${verifiedText.slice(0, 80)}"`)
+        newlyFoundIds.push(tweet.id)
+        continue
+      }
+
+      // Step 4: Extract specific integration names announced live in this post
+      const entities = extractIntegrationEntities(verifiedText)
+      console.log(`    🔍 Integration candidate entities: [${entities.join(', ')}] in: "${verifiedText.slice(0, 80)}"`)
+
+      // Step 5: Per-entity dedup — only count if this specific integration not seen before
+      for (const entity of entities) {
+        if (foundNames.has(entity)) {
+          console.log(`    ⏭️  Already counted integration "${entity}", skipping`)
           continue
         }
-        seenFingerprints.add(fp)
-        newlyFoundIds.push(tweet.id)
-        if (!lastMatch) lastMatch = { id: tweet.id, text: (tweet.title ?? '').slice(0, 100), date: tweet.pubDate }
+        foundNames.add(entity)
         foundCount++
-        // Log each new match
-        console.log(`    🤝 New integration found: ${(tweet.title ?? '').slice(0, 80)}`)
+        if (!lastMatch) lastMatch = { id: tweet.id, text: verifiedText.slice(0, 100), date: tweet.pubDate, entity }
+        console.log(`    🤝 New integration confirmed: "${entity}" · ${verifiedText.slice(0, 60)}`)
         if (foundCount >= target) break
+      }
+
+      newlyFoundIds.push(tweet.id)
+      if (foundCount >= target) break
+      if (candidateTweets.indexOf(tweet) < candidateTweets.length - 1) {
+        await new Promise(r => setTimeout(r, 1000))
       }
     }
 
     const allFoundIds = [...foundIds, ...newlyFoundIds]
     const triggered   = foundCount >= target
-
-    const statusLine = lastMatch
+    const statusLine  = lastMatch
       ? `Found ${foundCount} of ${target} · Last: ${(lastMatch.text ?? '').slice(0, 60)}`
       : `Found ${foundCount} of ${target} · No integrations yet`
 
     return {
       triggered,
       currentValue: statusLine,
-      rawData: { found_count: foundCount, target, last_match: lastMatch, last_scanned: lastScanned },
+      rawData: { found_count: foundCount, target, last_match: lastMatch, last_scanned: lastScanned, found_names: [...foundNames] },
       updatedMonitor: {
         ...monitor,
-        found_integration_count:    foundCount,
+        found_integration_count:     foundCount,
         found_integration_tweet_ids: allFoundIds,
-        last_integration_tweet:     lastMatch,
+        found_integration_names:     [...foundNames],
+        last_integration_tweet:      lastMatch,
       },
     }
   }
@@ -376,53 +446,81 @@ async function checkCondition(prediction, monitor) {
   if (condition_type === 'new_topic') {
     const target     = parseInt(threshold ?? '1', 10)
     const foundIds   = Array.isArray(monitor.found_topic_tweet_ids) ? monitor.found_topic_tweet_ids : []
+    // Entity-level dedup: track which specific topic groups we already counted
+    const foundNames = new Set(Array.isArray(monitor.found_topic_names) ? monitor.found_topic_names : [])
     let   foundCount = typeof monitor.found_topic_count === 'number' ? monitor.found_topic_count : 0
     let   lastMatch  = monitor.last_topic_tweet ?? null
 
     const tweets = await fetchTweetsViaRss(handle)
-    // Empty RSS = no tweets available yet (not a resolver failure — keep green dot)
     const activationTs = activation_timestamp ?? 0
-    // Only look at tweets posted after this resolver was activated, not already counted
     const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
-    // Track the most recent tweet scanned (whether it matched or not) for status display
-    const lastScanned = tweets[0] ? { id: tweets[0].id, text: (tweets[0].title ?? '').slice(0, 100), date: tweets[0].pubDate } : null
+    const lastScanned = tweets[0] ? { id: tweets[0].id, text: (tweets[0].fullText ?? tweets[0].title ?? '').slice(0, 100), date: tweets[0].pubDate } : null
 
     const newlyFoundIds = []
-    // Track fingerprints already counted this session to avoid counting tweet+repost of same topic as 2
-    const seenTopicFingerprints = new Set()
     for (const tweet of candidateTweets) {
-      if (isNewArcTopic(tweet.title ?? '')) {
-        const fp = contentFingerprint(tweet.title ?? '')
-        if (seenTopicFingerprints.has(fp)) {
-          console.log(`    ⏭️  Skipping duplicate topic (same content): ${(tweet.title ?? '').slice(0, 60)}`)
-          newlyFoundIds.push(tweet.id) // mark as seen so we don't re-check it next run
+      const postText = tweet.fullText ?? tweet.title ?? ''
+
+      // Step 1: Quick pre-filter on full RSS text
+      if (!isNewArcTopic(postText)) {
+        newlyFoundIds.push(tweet.id)
+        continue
+      }
+
+      // Step 2: Fetch complete tweet body via API
+      let verifiedText = postText
+      try {
+        await new Promise(r => setTimeout(r, 1500))
+        const fullTweet = await fetchTweet(handle, tweet.id)
+        if (fullTweet?.text) verifiedText = fullTweet.text
+      } catch (_) { /* fall back to RSS text */ }
+
+      // Step 3: Re-validate on complete text — full contradiction check
+      if (!isNewArcTopic(verifiedText)) {
+        console.log(`    ⚠️  Skipping — full post contradicts live topic claim: "${verifiedText.slice(0, 80)}"`)
+        newlyFoundIds.push(tweet.id)
+        continue
+      }
+
+      // Step 4: Extract specific group/topic names from full text
+      const entities = extractTopicEntities(verifiedText)
+      console.log(`    🔍 Topic candidate entities: [${entities.join(', ')}] in: "${verifiedText.slice(0, 80)}"`)
+
+      // Step 5: Per-entity dedup — only count if this specific group not seen before
+      for (const entity of entities) {
+        if (foundNames.has(entity)) {
+          console.log(`    ⏭️  Already counted topic "${entity}", skipping`)
           continue
         }
-        seenTopicFingerprints.add(fp)
-        newlyFoundIds.push(tweet.id)
-        if (!lastMatch) lastMatch = { id: tweet.id, text: (tweet.title ?? '').slice(0, 100), date: tweet.pubDate }
+        foundNames.add(entity)
         foundCount++
-        console.log(`    🏠 New Arc House topic found: ${(tweet.title ?? '').slice(0, 80)}`)
+        if (!lastMatch) lastMatch = { id: tweet.id, text: verifiedText.slice(0, 100), date: tweet.pubDate, entity }
+        console.log(`    🏠 New Arc House topic confirmed: "${entity}" · ${verifiedText.slice(0, 60)}`)
         if (foundCount >= target) break
+      }
+
+      newlyFoundIds.push(tweet.id)
+      if (foundCount >= target) break
+      if (candidateTweets.indexOf(tweet) < candidateTweets.length - 1) {
+        await new Promise(r => setTimeout(r, 1000))
       }
     }
 
     const allFoundIds = [...foundIds, ...newlyFoundIds]
     const triggered   = foundCount >= target
-
-    const statusLine = lastMatch
+    const statusLine  = lastMatch
       ? `Found ${foundCount} of ${target} · Last: ${(lastMatch.text ?? '').slice(0, 60)}`
       : `Found ${foundCount} of ${target} · No topics yet`
 
     return {
       triggered,
       currentValue: statusLine,
-      rawData: { found_count: foundCount, target, last_match: lastMatch, last_scanned: lastScanned },
+      rawData: { found_count: foundCount, target, last_match: lastMatch, last_scanned: lastScanned, found_names: [...foundNames] },
       updatedMonitor: {
         ...monitor,
-        found_topic_count:    foundCount,
+        found_topic_count:     foundCount,
         found_topic_tweet_ids: allFoundIds,
-        last_topic_tweet:     lastMatch,
+        found_topic_names:     [...foundNames],
+        last_topic_tweet:      lastMatch,
       },
     }
   }
