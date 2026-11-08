@@ -1,0 +1,38 @@
+name: Arc Calls – Ecosystem Resolver
+
+on:
+  schedule:
+    - cron: '30 * * * *'  # Every hour at :30 (offset from x-resolver which runs at :00)
+  workflow_dispatch:
+
+jobs:
+  eco-resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'agents/package.json'
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: agents
+
+      - name: Run Ecosystem Resolver
+        run: node ecosystem-resolver.js
+        working-directory: agents
+        env:
+          RESOLVER_ADMIN_KEY:        ${{ secrets.RESOLVER_ADMIN_KEY }}
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY:         ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BETTING_POOL_ADDRESS:      ${{ secrets.BETTING_POOL_ADDRESS }}
+          BLOCKSCOUT_API_KEY:        ${{ secrets.BLOCKSCOUT_API_KEY }}
+

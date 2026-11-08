@@ -112,6 +112,8 @@ export default function AdminPage() {
     handle: string; condition_type: string; threshold: string; tweet_url: string;
   }>({ handle: '', condition_type: '', threshold: '', tweet_url: '' })
   const [resolverActivating, setResolverActivating] = useState<number | null>(null)
+  const [resolverType, setResolverType] = useState<'x' | 'eco' | ''>('')
+  const [ecoConfigForm, setEcoConfigForm] = useState<{ condition_type: string; threshold: string }>({ condition_type: '', threshold: '' })
   const [loading, setLoading]         = useState(false)
   const [onChainLocks, setOnChainLocks] = useState<Record<number, boolean>>({})
   const [isBusy, setIsBusy]           = useState(false)
@@ -198,7 +200,7 @@ export default function AdminPage() {
   const loadResolverData = async () => {
     const { data: preds } = await supabase
       .from('predictions_display')
-      .select('id, title, deadline, x_monitor, status')
+      .select('id, title, deadline, x_monitor, eco_monitor, status')
       .eq('status', 'open')
       .order('created_at', { ascending: false })
     setOpenPredsForResolver((preds as DbPrediction[]) || [])
@@ -1876,16 +1878,15 @@ export default function AdminPage() {
           {/* TAB 3: RESOLVER                                                         */}
           {/* ══════════════════════════════════════════════════════════════════════ */}
           {tab === 'resolver' && (() => {
-            const watchingPreds = openPredsForResolver.filter(p => p.x_monitor !== null)
-            const unwatchedPreds = openPredsForResolver.filter(p => p.x_monitor === null)
-
+            const watchingPreds  = openPredsForResolver.filter(p => p.x_monitor !== null || (p as any).eco_monitor !== null)
+            const unwatchedPreds = openPredsForResolver.filter(p => p.x_monitor === null && (p as any).eco_monitor === null)
             const getLatestLog = (predId: number) =>
               resolverLogs.find(l => l.prediction_id === predId) || null
 
             const nextRunMinutes = () => 60 - new Date().getMinutes()
 
             const needsThreshold = (c: string) =>
-              !['pfp_change', 'new_post', 'verification_change', 'new_integration'].includes(c)
+              !['pfp_change', 'new_post', 'verification_change', 'new_integration', 'new_topic'].includes(c)
             const needsTweetUrl = (c: string) =>
               ['post_views', 'post_likes', 'post_reposts', 'post_replies'].includes(c)
 
@@ -1915,7 +1916,9 @@ export default function AdminPage() {
             const openResolverConfig = (pred: DbPrediction) => {
               if (resolverExpandedId === pred.id) { setResolverExpandedId(null); return }
               setResolverExpandedId(pred.id)
+              setResolverType('')
               setResolverConfigForm(autoFill(pred))
+              setEcoConfigForm({ condition_type: '', threshold: '' })
             }
 
             const handleActivate = async (pred: DbPrediction) => {
@@ -1924,6 +1927,7 @@ export default function AdminPage() {
               if (!condition_type) { showFailed('Condition required'); return }
               if (needsThreshold(condition_type) && !threshold) { showFailed('Target number required'); return }
               if (condition_type === 'new_integration' && !threshold) { showFailed('Integration target count required'); return }
+              if (condition_type === 'new_topic' && !threshold)       { showFailed('Topic target count required'); return }
               if (needsTweetUrl(condition_type) && !tweet_url)  { showFailed('Tweet URL required'); return }
 
               const tweetId = tweet_url ? extractTweetId(tweet_url) : null
@@ -1939,16 +1943,21 @@ export default function AdminPage() {
                 last_pfp_url: null,
                 last_verified: null,
                 tracking_tweet_id: null,
-                // new_integration fields (safe to include for all types — resolver ignores extras)
+                // new_integration fields
                 found_integration_count: 0,
                 found_integration_tweet_ids: [],
                 last_integration_tweet: null,
+                // new_topic fields
+                found_topic_count: 0,
+                found_topic_tweet_ids: [],
+                last_topic_tweet: null,
               }
 
               setResolverActivating(pred.id)
               try {
                 await supabase.from('predictions_display').update({ x_monitor: monitor }).eq('id', pred.id)
                 setResolverExpandedId(null)
+                setResolverType('')
                 await loadResolverData()
               } catch {
                 showFailed('Failed to activate resolver')
@@ -1962,6 +1971,37 @@ export default function AdminPage() {
               await loadResolverData()
             }
 
+            const handleEcoActivate = async (pred: DbPrediction) => {
+              const { condition_type, threshold } = ecoConfigForm
+              if (!condition_type) { showFailed('Condition required'); return }
+              if (!threshold)      { showFailed('Target number required'); return }
+
+              const ecoMonitor = {
+                condition_type,
+                threshold: String(threshold),
+                activation_timestamp: Math.floor(Date.now() / 1000),
+                last_value: null,
+                last_checked_at: null,
+              }
+
+              setResolverActivating(pred.id)
+              try {
+                await supabase.from('predictions_display').update({ eco_monitor: ecoMonitor }).eq('id', pred.id)
+                setResolverExpandedId(null)
+                setResolverType('')
+                await loadResolverData()
+              } catch {
+                showFailed('Failed to activate ecosystem resolver')
+              } finally {
+                setResolverActivating(null)
+              }
+            }
+
+            const handleEcoDeactivate = async (pred: DbPrediction) => {
+              await supabase.from('predictions_display').update({ eco_monitor: null }).eq('id', pred.id)
+              await loadResolverData()
+            }
+
             const CONDITION_LABELS: Record<string, string> = {
               new_post: 'New Post', pfp_change: 'Profile Picture Change',
               verification_change: 'Verification Change', follower_count: 'Followers',
@@ -1970,6 +2010,15 @@ export default function AdminPage() {
               next_tweet_replies: 'Next Tweet Replies', post_views: 'Specific Post Views',
               post_likes: 'Specific Post Likes', post_reposts: 'Specific Post Reposts',
               post_replies: 'Specific Post Replies', new_integration: 'New Live Integration on Arc',
+              new_topic: 'New Arc House Topic Live',
+            }
+
+            const ECO_CONDITION_LABELS: Record<string, string> = {
+              total_transactions: 'Total Transactions',
+              total_addresses:    'Total Unique Addresses',
+              daily_transactions: 'Daily Transactions (24h)',
+              total_blocks:       'Total Blocks',
+              verified_contracts: 'Verified Smart Contracts',
             }
 
             const labelSt: React.CSSProperties = {
@@ -2033,16 +2082,90 @@ export default function AdminPage() {
                       <div style={{ marginBottom: 32 }}>
                         <div style={{ ...labelSt, marginBottom: 12 }}>Currently Monitoring</div>
                         {watchingPreds.map(pred => {
+                          const isEco = (pred as any).eco_monitor !== null
+                          const log   = resolverLogs.find(l => l.prediction_id === pred.id) || null
+
+                          if (isEco) {
+                            const em       = (pred as any).eco_monitor as { condition_type: string; threshold?: string }
+                            const ecoLabel = ECO_CONDITION_LABELS[em.condition_type] ?? em.condition_type.replace(/_/g, ' ')
+                            const target   = em.threshold ? parseInt(em.threshold) : null
+                            const ecoLog   = resolverLogs.find(l => l.prediction_id === pred.id && l.handle === 'arc-mainnet') || null
+                            const curNum   = ecoLog ? parseInt((ecoLog.current_value || '0').replace(/[^0-9]/g, '')) : 0
+                            const pct      = target ? Math.min(100, Math.round((curNum / target) * 100)) : null
+
+                            return (
+                              <div key={pred.id} style={{
+                                background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+                                borderRadius: 12, padding: '16px 20px', marginBottom: 10,
+                              }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{
+                                      color: 'var(--text-primary)', fontSize: 14, fontWeight: 500,
+                                      marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                    }}>
+                                      {pred.title}
+                                    </div>
+                                    <div style={{ color: 'var(--accent-bright)', fontSize: 11, marginBottom: 2 }}>🔗 Arc Mainnet</div>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: target ? 10 : 0 }}>
+                                      {ecoLabel}{target ? ` · target: ${target.toLocaleString()}` : ''}
+                                    </div>
+                                    {target && (
+                                      <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                                          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                            {ecoLog?.current_value || 'Not checked yet'}
+                                          </span>
+                                          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{pct}%</span>
+                                        </div>
+                                        <div style={{ background: 'rgba(54,97,132,0.15)', borderRadius: 4, height: 4, overflow: 'hidden' }}>
+                                          <div style={{
+                                            width: `${pct}%`, height: '100%',
+                                            background: pct! >= 100 ? 'var(--accent-bright)' : 'rgba(54,97,132,0.7)',
+                                            borderRadius: 4, transition: 'width 0.3s',
+                                          }} />
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
+                                    {ecoLog && (
+                                      <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
+                                        {Math.round((Date.now() - new Date(ecoLog.checked_at).getTime()) / 60000)}m ago
+                                      </span>
+                                    )}
+                                    <div style={{
+                                      width: 8, height: 8, borderRadius: '50%',
+                                      background: ecoLog?.error ? '#F59E0B' : '#4ade80',
+                                      boxShadow: `0 0 6px ${ecoLog?.error ? '#F59E0B' : '#4ade80'}`,
+                                    }} />
+                                    <button
+                                      onClick={() => handleEcoDeactivate(pred)}
+                                      style={{
+                                        background: 'transparent',
+                                        border: '1px solid rgba(248,113,113,0.3)',
+                                        color: '#f87171', borderRadius: 6,
+                                        padding: '5px 10px', fontSize: 12, cursor: 'pointer',
+                                      }}
+                                    >
+                                      Deactivate
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          }
+
+                          // ── X Resolver monitoring card ──
                           const m = pred.x_monitor as {
                             handle: string; condition_type: string; threshold: string;
                           }
-                          const log = getLatestLog(pred.id)
-                          const hasThresh = needsThreshold(m.condition_type)
-                          const current = log?.current_value || 'Not checked yet'
-                          const target = hasThresh && m.threshold ? parseInt(m.threshold) : null
+                          const hasThresh  = needsThreshold(m.condition_type)
+                          const current    = log?.current_value || 'Not checked yet'
+                          const target     = hasThresh && m.threshold ? parseInt(m.threshold) : null
                           const currentNum = log ? parseInt((log.current_value || '').replace(/[^0-9]/g, '')) : 0
-                          const pct = hasThresh && target ? Math.min(100, Math.round((currentNum / target) * 100)) : null
-                          const condLabel = CONDITION_LABELS[m.condition_type] ?? m.condition_type.replace(/_/g, ' ')
+                          const pct        = hasThresh && target ? Math.min(100, Math.round((currentNum / target) * 100)) : null
+                          const condLabel  = CONDITION_LABELS[m.condition_type] ?? m.condition_type.replace(/_/g, ' ')
 
                           return (
                             <div key={pred.id} style={{
@@ -2113,6 +2236,38 @@ export default function AdminPage() {
                                         </div>
                                       )
                                     }
+                                    // new_topic: show found count + last match preview
+                                    if (ct === 'new_topic') {
+                                      const mon = pred.x_monitor as Record<string, unknown>
+                                      const foundCount  = (mon.found_topic_count as number) ?? 0
+                                      const topicTarget = m.threshold ? parseInt(m.threshold) : 1
+                                      const lastMatch   = mon.last_topic_tweet as { text?: string; date?: string } | null
+                                      return (
+                                        <div style={{ marginTop: 6 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                            <span style={{ color: 'var(--accent-bright)', fontSize: 13, fontWeight: 600 }}>
+                                              {foundCount} of {topicTarget}
+                                            </span>
+                                            <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Arc House topics found</span>
+                                          </div>
+                                          {lastMatch?.text ? (
+                                            <div style={{ color: 'var(--text-secondary)', fontSize: 12, fontStyle: 'italic', marginTop: 2 }}>
+                                              Last: {lastMatch.text.slice(0, 70)}
+                                            </div>
+                                          ) : (
+                                            <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>No topics found yet</div>
+                                          )}
+                                          <div style={{ background: 'rgba(54,97,132,0.15)', borderRadius: 4, height: 3, overflow: 'hidden', marginTop: 6 }}>
+                                            <div style={{
+                                              width: `${Math.min(100, Math.round((foundCount / topicTarget) * 100))}%`,
+                                              height: '100%',
+                                              background: foundCount >= topicTarget ? 'var(--accent-bright)' : 'rgba(54,97,132,0.7)',
+                                              borderRadius: 4, transition: 'width 0.3s',
+                                            }} />
+                                          </div>
+                                        </div>
+                                      )
+                                    }
                                     // new_post: show last tweet baseline
                                     if (ct === 'new_post') {
                                       const mon = pred.x_monitor as Record<string, unknown>
@@ -2162,7 +2317,7 @@ export default function AdminPage() {
                     {/* Unmonitored open predictions */}
                     <div>
                       <div style={{ ...labelSt, marginBottom: 12 }}>
-                        Open Predictions — Click to Add X Monitoring
+                        Open Predictions — Click to Add Resolver
                       </div>
                       {unwatchedPreds.length === 0 && (
                         <div style={{ color: 'var(--text-tertiary)', fontSize: 13, padding: '20px 0' }}>
@@ -2200,123 +2355,246 @@ export default function AdminPage() {
                               borderTop: 'none', borderRadius: '0 0 12px 12px',
                               padding: 20,
                             }}>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                                <div>
-                                  <label style={labelSt}>X Handle</label>
-                                  <input
-                                    value={resolverConfigForm.handle || ''}
-                                    onChange={e => setResolverConfigForm(p => ({ ...p, handle: e.target.value }))}
-                                    placeholder="elonmusk (no @)"
-                                    style={inputSt}
-                                  />
+                              {/* ── Resolver Type Picker ── */}
+                              {resolverType === '' && (
+                                <div style={{ marginBottom: 20 }}>
+                                  <label style={labelSt}>Resolver Type</label>
+                                  <div style={{ display: 'flex', gap: 10 }}>
+                                    <button onClick={() => setResolverType('x')} style={{
+                                      flex: 1, padding: '12px 0', borderRadius: 8,
+                                      border: '1px solid rgba(54,97,132,0.4)',
+                                      background: 'rgba(54,97,132,0.1)', color: 'var(--text-primary)',
+                                      cursor: 'pointer', fontSize: 14, fontWeight: 500,
+                                    }}>
+                                      🐦 X Resolver
+                                    </button>
+                                    <button onClick={() => setResolverType('eco')} style={{
+                                      flex: 1, padding: '12px 0', borderRadius: 8,
+                                      border: '1px solid rgba(54,97,132,0.4)',
+                                      background: 'rgba(54,97,132,0.1)', color: 'var(--text-primary)',
+                                      cursor: 'pointer', fontSize: 14, fontWeight: 500,
+                                    }}>
+                                      🔗 Ecosystem Resolver
+                                    </button>
+                                  </div>
+                                  <button onClick={() => setResolverExpandedId(null)} style={{
+                                    marginTop: 10, width: '100%', background: 'transparent',
+                                    border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)',
+                                    borderRadius: 8, padding: '10px', fontSize: 13, cursor: 'pointer',
+                                  }}>Cancel</button>
                                 </div>
-                                <div>
-                                  <label style={labelSt}>What to Monitor</label>
-                                  <select
-                                    value={resolverConfigForm.condition_type || ''}
-                                    onChange={e => setResolverConfigForm(p => ({ ...p, condition_type: e.target.value }))}
-                                    style={{ ...inputSt, cursor: 'pointer' }}
-                                  >
-                                    <option value="">— Pick a condition —</option>
-                                    <optgroup label="Account">
-                                      <option value="new_post">New Post Appeared</option>
-                                      <option value="follower_count">Follower Count</option>
-                                      <option value="tweet_count">Total Tweet Count</option>
-                                      <option value="pfp_change">Profile Picture Changed</option>
-                                      <option value="verification_change">Verification Changed</option>
-                                    </optgroup>
-                                    <optgroup label="Arc Mainnet">
-                                      <option value="new_integration">New Live Integration on Arc 🤝</option>
-                                    </optgroup>
-                                    <optgroup label="Next Tweet (after activation)">
-                                      <option value="next_tweet_views">Next Tweet Views</option>
-                                      <option value="next_tweet_likes">Next Tweet Likes</option>
-                                      <option value="next_tweet_reposts">Next Tweet Reposts</option>
-                                      <option value="next_tweet_replies">Next Tweet Replies</option>
-                                    </optgroup>
-                                    <optgroup label="Specific Tweet (needs URL)">
-                                      <option value="post_views">Post Views</option>
-                                      <option value="post_likes">Post Likes</option>
-                                      <option value="post_reposts">Post Reposts</option>
-                                      <option value="post_replies">Post Replies</option>
-                                    </optgroup>
-                                  </select>
-                                </div>
-                                {resolverConfigForm.condition_type && needsThreshold(resolverConfigForm.condition_type) && (
-                                  <div>
-                                    <label style={labelSt}>Target Number</label>
-                                    <input
-                                      type="number"
-                                      value={resolverConfigForm.threshold || ''}
-                                      onChange={e => setResolverConfigForm(p => ({ ...p, threshold: e.target.value }))}
-                                      placeholder="e.g. 100000"
-                                      style={inputSt}
-                                    />
+                              )}
+
+                              {/* ── X Resolver Form ── */}
+                              {resolverType === 'x' && (
+                                <>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                                    <div>
+                                      <label style={labelSt}>X Handle</label>
+                                      <input
+                                        value={resolverConfigForm.handle || ''}
+                                        onChange={e => setResolverConfigForm(p => ({ ...p, handle: e.target.value }))}
+                                        placeholder="elonmusk (no @)"
+                                        style={inputSt}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label style={labelSt}>What to Monitor</label>
+                                      <select
+                                        value={resolverConfigForm.condition_type || ''}
+                                        onChange={e => setResolverConfigForm(p => ({ ...p, condition_type: e.target.value }))}
+                                        style={{ ...inputSt, cursor: 'pointer' }}
+                                      >
+                                        <option value="">— Pick a condition —</option>
+                                        <optgroup label="Account">
+                                          <option value="new_post">New Post Appeared</option>
+                                          <option value="follower_count">Follower Count</option>
+                                          <option value="tweet_count">Total Tweet Count</option>
+                                          <option value="pfp_change">Profile Picture Changed</option>
+                                          <option value="verification_change">Verification Changed</option>
+                                        </optgroup>
+                                        <optgroup label="Arc Mainnet (via X)">
+                                          <option value="new_integration">New Live Integration on Arc 🤝</option>
+                                          <option value="new_topic">New Arc House Topic Live 🏠</option>
+                                        </optgroup>
+                                        <optgroup label="Next Tweet (after activation)">
+                                          <option value="next_tweet_views">Next Tweet Views</option>
+                                          <option value="next_tweet_likes">Next Tweet Likes</option>
+                                          <option value="next_tweet_reposts">Next Tweet Reposts</option>
+                                          <option value="next_tweet_replies">Next Tweet Replies</option>
+                                        </optgroup>
+                                        <optgroup label="Specific Tweet (needs URL)">
+                                          <option value="post_views">Post Views</option>
+                                          <option value="post_likes">Post Likes</option>
+                                          <option value="post_reposts">Post Reposts</option>
+                                          <option value="post_replies">Post Replies</option>
+                                        </optgroup>
+                                      </select>
+                                    </div>
+                                    {resolverConfigForm.condition_type && needsThreshold(resolverConfigForm.condition_type) && (
+                                      <div>
+                                        <label style={labelSt}>Target Number</label>
+                                        <input
+                                          type="number"
+                                          value={resolverConfigForm.threshold || ''}
+                                          onChange={e => setResolverConfigForm(p => ({ ...p, threshold: e.target.value }))}
+                                          placeholder="e.g. 100000"
+                                          style={inputSt}
+                                        />
+                                      </div>
+                                    )}
+                                    {resolverConfigForm.condition_type === 'new_integration' && (
+                                      <div>
+                                        <label style={labelSt}>Number of Integrations Target</label>
+                                        <input
+                                          type="number" min={1}
+                                          value={resolverConfigForm.threshold || ''}
+                                          onChange={e => setResolverConfigForm(p => ({ ...p, threshold: e.target.value }))}
+                                          placeholder="e.g. 2 (how many live integrations to detect)"
+                                          style={inputSt}
+                                        />
+                                      </div>
+                                    )}
+                                    {resolverConfigForm.condition_type === 'new_topic' && (
+                                      <div>
+                                        <label style={labelSt}>Number of Topics Target</label>
+                                        <input
+                                          type="number" min={1}
+                                          value={resolverConfigForm.threshold || ''}
+                                          onChange={e => setResolverConfigForm(p => ({ ...p, threshold: e.target.value }))}
+                                          placeholder="e.g. 1 (how many new Arc House topics to detect)"
+                                          style={inputSt}
+                                        />
+                                      </div>
+                                    )}
+                                    {resolverConfigForm.condition_type && needsTweetUrl(resolverConfigForm.condition_type) && (
+                                      <div>
+                                        <label style={labelSt}>Tweet URL</label>
+                                        <input
+                                          value={resolverConfigForm.tweet_url || ''}
+                                          onChange={e => setResolverConfigForm(p => ({ ...p, tweet_url: e.target.value }))}
+                                          placeholder="https://x.com/handle/status/..."
+                                          style={inputSt}
+                                        />
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                                {resolverConfigForm.condition_type === 'new_integration' && (
-                                  <div>
-                                    <label style={labelSt}>Number of Integrations Target</label>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      value={resolverConfigForm.threshold || ''}
-                                      onChange={e => setResolverConfigForm(p => ({ ...p, threshold: e.target.value }))}
-                                      placeholder="e.g. 2 (how many live integrations to detect)"
-                                      style={inputSt}
-                                    />
+                                  <div style={{
+                                    marginBottom: 16, padding: '10px 14px',
+                                    background: 'rgba(54,97,132,0.06)', border: '1px solid var(--border-subtle)', borderRadius: 8,
+                                  }}>
+                                    <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Timeline: </span>
+                                    <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                      {pred.deadline
+                                        ? `Monitors until ${new Date(pred.deadline).toLocaleDateString()}`
+                                        : 'No deadline — monitors until condition is met'}
+                                    </span>
                                   </div>
-                                )}
-                                {resolverConfigForm.condition_type && needsTweetUrl(resolverConfigForm.condition_type) && (
-                                  <div>
-                                    <label style={labelSt}>Tweet URL</label>
-                                    <input
-                                      value={resolverConfigForm.tweet_url || ''}
-                                      onChange={e => setResolverConfigForm(p => ({ ...p, tweet_url: e.target.value }))}
-                                      placeholder="https://x.com/handle/status/..."
-                                      style={inputSt}
-                                    />
+                                  <div style={{ display: 'flex', gap: 10 }}>
+                                    <button
+                                      onClick={() => handleActivate(pred)}
+                                      disabled={resolverActivating === pred.id}
+                                      style={{
+                                        flex: 1, background: 'rgba(54,97,132,0.25)',
+                                        color: 'var(--accent-bright)',
+                                        border: '1px solid rgba(54,97,132,0.5)',
+                                        borderRadius: 8, padding: 11,
+                                        fontSize: 14, fontWeight: 600,
+                                        cursor: resolverActivating === pred.id ? 'not-allowed' : 'pointer',
+                                        opacity: resolverActivating === pred.id ? 0.7 : 1,
+                                      }}
+                                    >
+                                      {resolverActivating === pred.id ? 'Activating...' : 'Activate X Resolver ✅'}
+                                    </button>
+                                    <button
+                                      onClick={() => { setResolverType(''); setResolverExpandedId(null) }}
+                                      style={{
+                                        background: 'transparent', border: '1px solid var(--border-subtle)',
+                                        color: 'var(--text-secondary)', borderRadius: 8,
+                                        padding: '11px 20px', fontSize: 14, cursor: 'pointer',
+                                      }}
+                                    >
+                                      Cancel
+                                    </button>
                                   </div>
-                                )}
-                              </div>
-                              <div style={{
-                                marginBottom: 16, padding: '10px 14px',
-                                background: 'rgba(54,97,132,0.06)', border: '1px solid var(--border-subtle)', borderRadius: 8,
-                              }}>
-                                <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Timeline: </span>
-                                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                                  {pred.deadline
-                                    ? `Monitors until ${new Date(pred.deadline).toLocaleDateString()}`
-                                    : 'No deadline — monitors until condition is met'}
-                                </span>
-                              </div>
-                              <div style={{ display: 'flex', gap: 10 }}>
-                                <button
-                                  onClick={() => handleActivate(pred)}
-                                  disabled={resolverActivating === pred.id}
-                                  style={{
-                                    flex: 1, background: 'rgba(54,97,132,0.25)',
-                                    color: 'var(--accent-bright)',
-                                    border: '1px solid rgba(54,97,132,0.5)',
-                                    borderRadius: 8, padding: 11,
-                                    fontSize: 14, fontWeight: 600,
-                                    cursor: resolverActivating === pred.id ? 'not-allowed' : 'pointer',
-                                    opacity: resolverActivating === pred.id ? 0.7 : 1,
-                                  }}
-                                >
-                                  {resolverActivating === pred.id ? 'Activating...' : 'Activate Resolver ✅'}
-                                </button>
-                                <button
-                                  onClick={() => setResolverExpandedId(null)}
-                                  style={{
-                                    background: 'transparent', border: '1px solid var(--border-subtle)',
-                                    color: 'var(--text-secondary)', borderRadius: 8,
-                                    padding: '11px 20px', fontSize: 14, cursor: 'pointer',
-                                  }}
-                                >
-                                  Cancel
-                                </button>
-                              </div>
+                                </>
+                              )}
+
+                              {/* ── Ecosystem Resolver Form ── */}
+                              {resolverType === 'eco' && (
+                                <>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                                    <div>
+                                      <label style={labelSt}>Arc Mainnet Metric</label>
+                                      <select
+                                        value={ecoConfigForm.condition_type || ''}
+                                        onChange={e => setEcoConfigForm(p => ({ ...p, condition_type: e.target.value }))}
+                                        style={{ ...inputSt, cursor: 'pointer' }}
+                                      >
+                                        <option value="">— Pick a metric —</option>
+                                        <option value="total_transactions">Total Transactions</option>
+                                        <option value="total_addresses">Total Unique Addresses</option>
+                                        <option value="daily_transactions">Daily Transactions (24h)</option>
+                                        <option value="total_blocks">Total Blocks</option>
+                                        <option value="verified_contracts">Verified Smart Contracts</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label style={labelSt}>Target Number</label>
+                                      <input
+                                        type="number"
+                                        value={ecoConfigForm.threshold || ''}
+                                        onChange={e => setEcoConfigForm(p => ({ ...p, threshold: e.target.value }))}
+                                        placeholder={
+                                          ecoConfigForm.condition_type === 'total_transactions' ? 'e.g. 70000000' :
+                                          ecoConfigForm.condition_type === 'total_addresses'    ? 'e.g. 5000000'  :
+                                          ecoConfigForm.condition_type === 'daily_transactions' ? 'e.g. 1000000'  :
+                                          ecoConfigForm.condition_type === 'total_blocks'        ? 'e.g. 35000000' :
+                                          ecoConfigForm.condition_type === 'verified_contracts'  ? 'e.g. 200000'   :
+                                          'e.g. 70000000'
+                                        }
+                                        style={inputSt}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div style={{
+                                    marginBottom: 16, padding: '10px 14px',
+                                    background: 'rgba(54,97,132,0.06)', border: '1px solid var(--border-subtle)', borderRadius: 8,
+                                  }}>
+                                    <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Source: </span>
+                                    <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                      Blockscout API · Arc Mainnet (chain 5042) · checked every hour at :30
+                                    </span>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 10 }}>
+                                    <button
+                                      onClick={() => handleEcoActivate(pred)}
+                                      disabled={resolverActivating === pred.id}
+                                      style={{
+                                        flex: 1, background: 'rgba(54,97,132,0.25)',
+                                        color: 'var(--accent-bright)',
+                                        border: '1px solid rgba(54,97,132,0.5)',
+                                        borderRadius: 8, padding: 11,
+                                        fontSize: 14, fontWeight: 600,
+                                        cursor: resolverActivating === pred.id ? 'not-allowed' : 'pointer',
+                                        opacity: resolverActivating === pred.id ? 0.7 : 1,
+                                      }}
+                                    >
+                                      {resolverActivating === pred.id ? 'Activating...' : 'Activate Ecosystem Resolver 🔗'}
+                                    </button>
+                                    <button
+                                      onClick={() => { setResolverType(''); setResolverExpandedId(null) }}
+                                      style={{
+                                        background: 'transparent', border: '1px solid var(--border-subtle)',
+                                        color: 'var(--text-secondary)', borderRadius: 8,
+                                        padding: '11px 20px', fontSize: 14, cursor: 'pointer',
+                                      }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           )}
                         </div>

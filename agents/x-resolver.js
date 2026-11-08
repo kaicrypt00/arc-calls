@@ -165,6 +165,26 @@ function isLiveIntegration(text) {
   )
 }
 
+// ─── NEW TOPIC DETECTOR ───────────────────────────────────────────────────────
+// Detects posts from @arc (originals + reposts) announcing a NEW Arc House
+// community topic/group that is LIVE right now.
+// Valid: "is live on Arc House", "now live", "new group", "announcing", community.arc.io link
+// Invalid: "coming soon", "will be live", "launching soon", "planned", "working on"
+function isNewArcTopic(text) {
+  if (!text) return false
+  const t = text.toLowerCase()
+  // Must reference Arc House community (by URL or by name)
+  if (!t.includes('community.arc.io') && !t.includes('arc house')) return false
+  // Exclusions — upcoming / not-yet-live announcements
+  if (/coming soon|will be live|coming to|soon on|working on|planned|launching soon/.test(t)) return false
+  // Positive patterns — group/topic IS live right now
+  return (
+    /is live|now live|live on arc|live!/i.test(t) ||
+    /new.*group|new.*community|new.*club|new.*topic/i.test(t) ||
+    /launched|announcing/i.test(t)
+  )
+}
+
 // ─── CONDITION CHECKERS ───────────────────────────────────────────────────────
 async function checkCondition(prediction, monitor) {
   const {
@@ -325,6 +345,54 @@ async function checkCondition(prediction, monitor) {
         found_integration_count:    foundCount,
         found_integration_tweet_ids: allFoundIds,
         last_integration_tweet:     lastMatch,
+      },
+    }
+  }
+
+  // ── new_topic: counts @arc posts (originals + reposts) announcing new Arc   ──
+  // ── House community topics/groups that are LIVE right now                   ──
+  if (condition_type === 'new_topic') {
+    const target     = parseInt(threshold ?? '1', 10)
+    const foundIds   = Array.isArray(monitor.found_topic_tweet_ids) ? monitor.found_topic_tweet_ids : []
+    let   foundCount = typeof monitor.found_topic_count === 'number' ? monitor.found_topic_count : 0
+    let   lastMatch  = monitor.last_topic_tweet ?? null
+
+    const tweets = await fetchTweetsViaRss(handle)
+    if (tweets.length === 0) {
+      return { error: `No tweets found via RSS for @${handle}` }
+    }
+
+    const activationTs = activation_timestamp ?? 0
+    // Only look at tweets posted after this resolver was activated, not already counted
+    const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
+
+    const newlyFoundIds = []
+    for (const tweet of candidateTweets) {
+      if (isNewArcTopic(tweet.title ?? '')) {
+        newlyFoundIds.push(tweet.id)
+        if (!lastMatch) lastMatch = { id: tweet.id, text: (tweet.title ?? '').slice(0, 100), date: tweet.pubDate }
+        foundCount++
+        console.log(`    🏠 New Arc House topic found: ${(tweet.title ?? '').slice(0, 80)}`)
+        if (foundCount >= target) break
+      }
+    }
+
+    const allFoundIds = [...foundIds, ...newlyFoundIds]
+    const triggered   = foundCount >= target
+
+    const statusLine = lastMatch
+      ? `Found ${foundCount} of ${target} · Last: ${(lastMatch.text ?? '').slice(0, 60)}`
+      : `Found ${foundCount} of ${target} · No topics yet`
+
+    return {
+      triggered,
+      currentValue: statusLine,
+      rawData: { found_count: foundCount, target, last_match: lastMatch },
+      updatedMonitor: {
+        ...monitor,
+        found_topic_count:    foundCount,
+        found_topic_tweet_ids: allFoundIds,
+        last_topic_tweet:     lastMatch,
       },
     }
   }
@@ -490,6 +558,11 @@ async function run() {
     } else if (condition === 'new_integration') {
       const rd = result.rawData ?? {}
       console.log(`    Found:    ${rd.found_count ?? 0} of ${rd.target ?? '?'} integrations live on mainnet`)
+      if (rd.last_match) console.log(`    Last:     ${(rd.last_match.text ?? '').slice(0, 70)}`)
+      else               console.log(`    Last:     none yet`)
+    } else if (condition === 'new_topic') {
+      const rd = result.rawData ?? {}
+      console.log(`    Found:    ${rd.found_count ?? 0} of ${rd.target ?? '?'} Arc House topics live`)
       if (rd.last_match) console.log(`    Last:     ${(rd.last_match.text ?? '').slice(0, 70)}`)
       else               console.log(`    Last:     none yet`)
     } else if (condition === 'pfp_change' || condition === 'verification_change') {
