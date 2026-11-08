@@ -397,14 +397,18 @@ async function main() {
   else         console.log('✅ Pool updated in predictions_display')
 
   // 8d. wallet_transactions — best-effort, never fatal
-  await supabase.from('wallet_transactions').insert({
-    wallet_address: wallet,
-    type:           'bet',
-    label:          `Called ${BET_AMOUNT_USDC} USDC ${decision} — "${targetMarket.title.slice(0, 40)}..."`,
-    amount:         betAmtNum,
-    tx_hash:        txHash,
-    created_at:     timestamp,
-  }).catch(e => console.warn(`⚠️ wallet_transactions insert skipped: ${e.message}`))
+  try {
+    await supabase.from('wallet_transactions').insert({
+      wallet_address: wallet,
+      type:           'bet',
+      label:          `Called ${BET_AMOUNT_USDC} USDC ${decision} — "${targetMarket.title.slice(0, 40)}..."`,
+      amount:         betAmtNum,
+      tx_hash:        txHash,
+      created_at:     timestamp,
+    })
+  } catch (e) {
+    console.warn(`⚠️ wallet_transactions insert skipped: ${e.message}`)
+  }
 
   console.log('\n📊 All Supabase records written.')
   console.log('🏁 Arc Agent 001 run complete!')
