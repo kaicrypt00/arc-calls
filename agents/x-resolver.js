@@ -162,20 +162,20 @@ function isLiveIntegration(text) {
   if (!t.includes('arc')) return false
   // Contradiction check on FULL text — any "coming/upcoming" language anywhere kills it
   if (/coming soon|will be live|coming to arc|arc studio|soon on arc|launching soon|planned for|will launch|not yet live|expected/.test(t)) return false
-  // Confirmed-live patterns anywhere in the post
+  // Confirmed-live patterns anywhere in the post (is/are/now/officially)
   return (
-    /live on arc/.test(t) ||
-    /is live on arc/.test(t) ||
-    /now live/.test(t)      ||
-    /fully migrated.{0,40}arc/.test(t) ||
-    /now supports.{0,60}arc/.test(t)   ||
-    /officially live.{0,30}arc/.test(t)
+    /(?:is|are)\s+(?:now\s+)?live\s+on\s+arc/.test(t) ||
+    /live\s+on\s+arc/.test(t)                          ||
+    /now\s+live/.test(t)                               ||
+    /fully\s+migrated.{0,40}arc/.test(t)               ||
+    /now\s+supports.{0,60}arc/.test(t)                 ||
+    /officially\s+live.{0,30}arc/.test(t)
   )
 }
 
 // ─── TOPIC DETECTOR ───────────────────────────────────────────────────────────
 // Full-text analysis of the ENTIRE post.
-// Passes only if the whole text (including repost body) confirms a group IS live.
+// Passes only if the whole text (including repost body) confirms a group IS/ARE live.
 function isNewArcTopic(text) {
   if (!text) return false
   const t = text.toLowerCase()
@@ -183,8 +183,9 @@ function isNewArcTopic(text) {
   // Contradiction check on FULL text
   if (/coming soon|will be live|coming to|soon on|working on|planned|launching soon|not yet/.test(t)) return false
   return (
-    /is live|now live|live on arc|live!/i.test(t)        ||
-    /new.*group|new.*community|new.*club|new.*topic/i.test(t) ||
+    /(?:is|are)\s+(?:now\s+)?live/i.test(t)            ||
+    /live\s+on\s+arc|live!/i.test(t)                   ||
+    /new.*(?:group|community|club|topic)/i.test(t)     ||
     /launched|announcing/i.test(t)
   )
 }
@@ -207,10 +208,17 @@ function extractIntegrationEntities(text) {
     const name = m[1].replace(/@/g, '').trim().toLowerCase().split(/\s+and\s+|\s*[,&]\s*/)[0]
     if (name && name.length > 1) found.add(name)
   }
-  // Pattern: "@A and @B are [both] live on Arc"
-  for (const m of t.matchAll(/([@\w][\w.\-]{1,20})\s+and\s+([@\w][\w.\-]{1,20})\s+are\s+(?:both\s+)?live\s+on\s+arc/gi)) {
+  // Pattern: "@A and @B are [both] [now] live on Arc" — multi-entity in one tweet
+  for (const m of t.matchAll(/([@\w][\w.\-]{1,20})\s+and\s+([@\w][\w.\-]{1,20})\s+are\s+(?:both\s+)?(?:now\s+)?live\s+on\s+arc/gi)) {
     found.add(m[1].replace(/^@/, '').toLowerCase())
     found.add(m[2].replace(/^@/, '').toLowerCase())
+  }
+  // Pattern: "X, Y and Z are live on Arc" (3+ entities comma-separated)
+  const multiMatch = t.match(/((?:[@\w][\w.\-]{1,20}(?:\s*[,&]\s*|\s+and\s+)){2,})are\s+(?:both\s+)?(?:now\s+)?live\s+on\s+arc/i)
+  if (multiMatch) {
+    for (const name of multiMatch[1].split(/\s*[,&]\s*|\s+and\s+/).map(n => n.replace(/@/g,'').trim().toLowerCase()).filter(n => n.length > 1)) {
+      found.add(name)
+    }
   }
   // Generic fallback if patterns match but no name extracted
   if (found.size === 0 && isLiveIntegration(text)) found.add('_arc_integration_')
@@ -222,17 +230,24 @@ function extractTopicEntities(text) {
   const found = new Set()
   const t = text.replace(/https?:\/\/\S+/gi, ' ')
 
-  // "New Arc House group: GroupName [is live]" / "Arc House topic: GroupName"
-  for (const m of t.matchAll(/(?:new\s+)?arc\s+house\s+(?:group|topic|community|club|space)[:\-–—\s]+([^\n!.,?@]{2,40}?)(?:\s+is\s+(?:now\s+)?live|$)/gi)) {
+  // "New Arc House group: GroupName [is/are live]" / "Arc House topic: GroupName"
+  for (const m of t.matchAll(/(?:new\s+)?arc\s+house\s+(?:group|topic|community|club|space)[:\-–—\s]+([^\n!.,?@]{2,40}?)(?:\s+(?:is|are)\s+(?:now\s+)?live|$)/gi)) {
     const name = m[1].trim().toLowerCase()
     if (name && name.length > 1) found.add(name)
   }
-  // "GroupName is [now] live on Arc House"
-  for (const m of t.matchAll(/([^\n]{2,40}?)\s+is\s+(?:now\s+)?live\s+on\s+arc\s+house/gi)) {
-    const name = m[1].trim().toLowerCase()
-    if (name && name.length > 1 && !/^(it|this|that|the|a|an)$/.test(name)) found.add(name)
+  // "GroupName is/are [now] live on Arc House"
+  for (const m of t.matchAll(/([^\n]{2,40}?)\s+(?:is|are)\s+(?:now\s+)?live\s+on\s+arc\s+house/gi)) {
+    const raw = m[1].trim().toLowerCase()
+    // If "and" in name → split into two entities ("Group A and Group B are live on Arc House")
+    if (/\s+and\s+/.test(raw)) {
+      for (const part of raw.split(/\s+and\s+/).map(s => s.trim()).filter(s => s.length > 1)) {
+        if (!/^(it|this|that|the|a|an)$/.test(part)) found.add(part)
+      }
+    } else {
+      if (raw.length > 1 && !/^(it|this|that|the|a|an)$/.test(raw)) found.add(raw)
+    }
   }
-  // "community.arc.io/groups/name" slug
+  // "community.arc.io/groups/name" slug — most reliable if present
   for (const m of t.matchAll(/community\.arc\.io\/(?:groups?|topics?|clubs?)\/([^\s/?#"']+)/gi)) {
     found.add(m[1].toLowerCase())
   }
