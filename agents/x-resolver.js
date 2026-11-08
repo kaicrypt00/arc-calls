@@ -151,18 +151,16 @@ async function fetchTweetsViaRss(handle) {
   }
 }
 
-// ─── INTEGRATION DETECTOR ─────────────────────────────────────────────────────
-// Full-text analysis. Reads the ENTIRE post body before deciding.
-// A tweet passes only if:
-//   • The whole text (not just title) contains a confirmed "live NOW" signal
-//   • No contradictions anywhere in the post ("coming soon", "will be live", etc.)
+// ─── PRE-FILTERS ──────────────────────────────────────────────────────────────
+// These are QUICK CHECKS only — they decide whether to even attempt full analysis.
+// They do NOT make the final live/not-live decision; that happens per-entity below.
+// Pre-filter only checks: "does this post mention Arc + any live signal at all?"
+// Contradiction words in other parts of the same post are handled per-entity.
+
 function isLiveIntegration(text) {
   if (!text) return false
   const t = text.toLowerCase()
   if (!t.includes('arc')) return false
-  // Contradiction check on FULL text — any "coming/upcoming" language anywhere kills it
-  if (/coming soon|will be live|coming to arc|arc studio|soon on arc|launching soon|planned for|will launch|not yet live|expected/.test(t)) return false
-  // Confirmed-live patterns anywhere in the post (is/are/now/officially)
   return (
     /(?:is|are)\s+(?:now\s+)?live\s+on\s+arc/.test(t) ||
     /live\s+on\s+arc/.test(t)                          ||
@@ -173,27 +171,46 @@ function isLiveIntegration(text) {
   )
 }
 
-// ─── TOPIC DETECTOR ───────────────────────────────────────────────────────────
-// Full-text analysis of the ENTIRE post.
-// Passes only if the whole text (including repost body) confirms a group IS/ARE live.
 function isNewArcTopic(text) {
   if (!text) return false
   const t = text.toLowerCase()
   if (!t.includes('community.arc.io') && !t.includes('arc house')) return false
-  // Contradiction check on FULL text
-  if (/coming soon|will be live|coming to|soon on|working on|planned|launching soon|not yet/.test(t)) return false
   return (
-    /(?:is|are)\s+(?:now\s+)?live/i.test(t)            ||
-    /live\s+on\s+arc|live!/i.test(t)                   ||
-    /new.*(?:group|community|club|topic)/i.test(t)     ||
+    /(?:is|are)\s+(?:now\s+)?live/i.test(t)        ||
+    /live\s+on\s+arc|live!/i.test(t)               ||
+    /new.*(?:group|community|club|topic)/i.test(t) ||
     /launched|announcing/i.test(t)
   )
 }
 
+// ─── PER-ENTITY CONTEXT HELPERS ───────────────────────────────────────────────
+// After extracting entity names, we check the ~100 chars AROUND each entity
+// in the full post to decide if THAT specific entity is live or coming-soon.
+// This handles mixed posts like:
+//   "X is live on Arc! And Y will be live soon." → X counts, Y does not.
+//   "X is live on Arc and in between Y is live too" → both count.
+
+// Get the surrounding text window (~100 chars) around where entityName appears
+function getEntityContext(text, entityName) {
+  if (entityName.startsWith('_')) return text // generic marker — use whole text
+  const idx = text.toLowerCase().indexOf(entityName.toLowerCase())
+  if (idx === -1) return text // fallback: use whole text
+  const start = Math.max(0, idx - 100)
+  const end   = Math.min(text.length, idx + entityName.length + 100)
+  return text.slice(start, end)
+}
+
+// Check if a local context window contains contradiction words
+// (entity is NOT live yet — it's coming soon or planned)
+function hasContradiction(contextText) {
+  const t = contextText.toLowerCase()
+  return /coming soon|will be live|coming to arc|arc studio|soon on arc|launching soon|planned for|will launch|not yet live|expected to|upcoming|in the future|next week|next month/.test(t)
+}
+
 // ─── ENTITY EXTRACTORS ────────────────────────────────────────────────────────
-// Extract ALL distinct integration names confirmed live in a post.
-// One tweet can announce multiple ("X and Y are both live on Arc") → returns array.
-// If we can't extract a specific name, returns ['_arc_integration_'] as generic marker.
+// Extract ALL entity names that appear near a "live" signal in the post.
+// Contradictions are NOT checked here — they are checked per-entity in the caller.
+
 function extractIntegrationEntities(text) {
   const found = new Set()
   const t = text.replace(/https?:\/\/\S+/gi, ' ') // strip URLs first
@@ -220,12 +237,11 @@ function extractIntegrationEntities(text) {
       found.add(name)
     }
   }
-  // Generic fallback if patterns match but no name extracted
+  // Generic fallback if live pattern matched but no specific name extracted
   if (found.size === 0 && isLiveIntegration(text)) found.add('_arc_integration_')
   return [...found]
 }
 
-// Extract ALL distinct Arc House group/topic names confirmed live in a post.
 function extractTopicEntities(text) {
   const found = new Set()
   const t = text.replace(/https?:\/\/\S+/gi, ' ')
@@ -235,10 +251,9 @@ function extractTopicEntities(text) {
     const name = m[1].trim().toLowerCase()
     if (name && name.length > 1) found.add(name)
   }
-  // "GroupName is/are [now] live on Arc House"
+  // "GroupName is/are [now] live on Arc House" — split "and" into two entities
   for (const m of t.matchAll(/([^\n]{2,40}?)\s+(?:is|are)\s+(?:now\s+)?live\s+on\s+arc\s+house/gi)) {
     const raw = m[1].trim().toLowerCase()
-    // If "and" in name → split into two entities ("Group A and Group B are live on Arc House")
     if (/\s+and\s+/.test(raw)) {
       for (const part of raw.split(/\s+and\s+/).map(s => s.trim()).filter(s => s.length > 1)) {
         if (!/^(it|this|that|the|a|an)$/.test(part)) found.add(part)
@@ -247,7 +262,7 @@ function extractTopicEntities(text) {
       if (raw.length > 1 && !/^(it|this|that|the|a|an)$/.test(raw)) found.add(raw)
     }
   }
-  // "community.arc.io/groups/name" slug — most reliable if present
+  // "community.arc.io/groups/name" slug — most reliable signal if present
   for (const m of t.matchAll(/community\.arc\.io\/(?:groups?|topics?|clubs?)\/([^\s/?#"']+)/gi)) {
     found.add(m[1].toLowerCase())
   }
@@ -416,10 +431,19 @@ async function checkCondition(prediction, monitor) {
       const entities = extractIntegrationEntities(verifiedText)
       console.log(`    🔍 Integration candidate entities: [${entities.join(', ')}] in: "${verifiedText.slice(0, 80)}"`)
 
-      // Step 5: Per-entity dedup — only count if this specific integration not seen before
+      // Step 5: Per-entity dedup + local contradiction check
+      // For each found entity, we look at the ~100 chars AROUND it in the full post.
+      // This handles: "X is live on Arc! Y will be live soon." → X counts, Y does NOT.
+      // If a repost or new tweet mentions the same entity again → skipped by foundNames dedup.
       for (const entity of entities) {
         if (foundNames.has(entity)) {
           console.log(`    ⏭️  Already counted integration "${entity}", skipping`)
+          continue
+        }
+        // Check the LOCAL context of this specific entity — not the whole post
+        const ctx = getEntityContext(verifiedText, entity)
+        if (hasContradiction(ctx)) {
+          console.log(`    ⚠️  "${entity}" context says coming-soon/not-live yet, skipping: "${ctx.slice(0, 80)}"`)
           continue
         }
         foundNames.add(entity)
@@ -500,10 +524,19 @@ async function checkCondition(prediction, monitor) {
       const entities = extractTopicEntities(verifiedText)
       console.log(`    🔍 Topic candidate entities: [${entities.join(', ')}] in: "${verifiedText.slice(0, 80)}"`)
 
-      // Step 5: Per-entity dedup — only count if this specific group not seen before
+      // Step 5: Per-entity dedup + local contradiction check
+      // For each found entity, we look at the ~100 chars AROUND it in the full post.
+      // This handles: "X is live on Arc House! Y will be live soon." → X counts, Y does NOT.
+      // If a repost or new tweet mentions the same group again → skipped by foundNames dedup.
       for (const entity of entities) {
         if (foundNames.has(entity)) {
           console.log(`    ⏭️  Already counted topic "${entity}", skipping`)
+          continue
+        }
+        // Check the LOCAL context of this specific entity — not the whole post
+        const ctx = getEntityContext(verifiedText, entity)
+        if (hasContradiction(ctx)) {
+          console.log(`    ⚠️  "${entity}" context says coming-soon/not-live yet, skipping: "${ctx.slice(0, 80)}"`)
           continue
         }
         foundNames.add(entity)
