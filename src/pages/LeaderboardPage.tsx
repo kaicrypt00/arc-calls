@@ -396,11 +396,11 @@ export default function LeaderboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const AGENT_WALLET = '0x50f7067035972795fc9970be26a6489b10065343'
-  const isAgent = (e: DbLeaderboard) => e.is_agent === true || e.wallet_address?.toLowerCase() === AGENT_WALLET
+  // All entries with at least one call — used for arena-wide stats (includes live bets)
+  const allActive = (cachedLeaderboard ?? []).filter(e => Number(e.total_calls ?? 0) > 0)
 
-  const lbData = (cachedLeaderboard ?? [])
-    .filter(e => isAgent(e) || (Number(e.total_calls ?? 0) > 0 && Number(e.total_pnl ?? 0) > 0))
+  // Display list: anyone with calls, sorted by PnL then win-rate then volume
+  const lbData = allActive
     .sort((a, b) => {
       const pnlA = Number(a.total_pnl ?? 0)
       const pnlB = Number(b.total_pnl ?? 0)
@@ -412,10 +412,11 @@ export default function LeaderboardPage() {
     })
   const entries: DbLeaderboard[] = lbData
   const stats: ArenaStats = {
-    totalVolume:   lbData.reduce((s, e) => s + Number(e.total_volume ?? 0), 0),
-    callsMade:     lbData.reduce((s, e) => s + Number(e.total_calls ?? 0), 0),
-    activeCallers: lbData.length,
-    largestWin:    Math.max(0, lbData.reduce((max, e) => Math.max(max, Number(e.total_pnl ?? 0)), 0)),
+    // Sum volume/calls across ALL active bettors (live + settled), not just the filtered display list
+    totalVolume:   allActive.reduce((s, e) => s + Number(e.total_volume ?? 0), 0),
+    callsMade:     allActive.reduce((s, e) => s + Number(e.total_calls ?? 0), 0),
+    activeCallers: allActive.length,
+    largestWin:    Math.max(0, allActive.reduce((max, e) => Math.max(max, Number(e.total_pnl ?? 0)), 0)),
     callsResolved: resolved,
   }
   const loading = statsLoading || cachedLeaderboard === null
