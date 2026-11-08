@@ -32,8 +32,9 @@ const RAW_KEY            = process.env.AGENT_WALLET_KEY || process.env.AGENT_PRI
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 const SUPABASE_URL       = process.env.SUPABASE_URL || 'https://zxmfdvzkmeybujoowzgh.supabase.co'
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
-// BettingPool address — matches frontend .env + Arc Mainnet deployment
-const BETTING_POOL = process.env.BETTING_POOL_ADDRESS || '0xD7b60891729bC02F8C786Dafb479CD6152f57925'
+// BettingPool address — redeployed contract (0xa8e01...), matches frontend + Arc Mainnet
+// See AGENTS.md: "BettingPool | 0xa8e01ece16038D481f13a6AaAb692b2FD0Caa1d8 (redeployed)"
+const BETTING_POOL = process.env.BETTING_POOL_ADDRESS || '0xa8e01ece16038D481f13a6AaAb692b2FD0Caa1d8'
 
 // Side constants: 1 = YES, 2 = NO (matches BettingPool contract)
 const SIDE = { YES: 1, NO: 2 }
