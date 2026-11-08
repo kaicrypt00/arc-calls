@@ -309,12 +309,8 @@ async function checkCondition(prediction, monitor) {
     let   lastMatch  = monitor.last_integration_tweet ?? null
 
     const tweets = await fetchTweetsViaRss(handle)
-    if (tweets.length === 0) {
-      return { error: `No tweets found via RSS for @${handle}` }
-    }
-
+    // Empty RSS = no tweets available yet (not a resolver failure — keep green dot)
     const activationTs = activation_timestamp ?? 0
-    // Only look at tweets posted after this resolver was activated, not already counted
     const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
 
     const newlyFoundIds = []
@@ -358,10 +354,7 @@ async function checkCondition(prediction, monitor) {
     let   lastMatch  = monitor.last_topic_tweet ?? null
 
     const tweets = await fetchTweetsViaRss(handle)
-    if (tweets.length === 0) {
-      return { error: `No tweets found via RSS for @${handle}` }
-    }
-
+    // Empty RSS = no tweets available yet (not a resolver failure — keep green dot)
     const activationTs = activation_timestamp ?? 0
     // Only look at tweets posted after this resolver was activated, not already counted
     const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
