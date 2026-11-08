@@ -165,6 +165,21 @@ function isLiveIntegration(text) {
   )
 }
 
+// ─── TOPIC CONTENT FINGERPRINT ────────────────────────────────────────────────
+// Returns a short normalized key so that an original tweet and its repost about
+// the SAME topic/integration are treated as ONE event (not counted twice).
+// Strips common filler words and takes the first 50 chars of the remainder.
+function contentFingerprint(text) {
+  return text
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, '')                 // remove URLs
+    .replace(/[^a-z0-9 ]/g, ' ')                    // keep only alphanumeric
+    .replace(/\b(is|on|a|the|an|and|or|in|at|to|of|for|with|arc|live|now|new)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 50)
+}
+
 // ─── NEW TOPIC DETECTOR ───────────────────────────────────────────────────────
 // Detects posts from @arc (originals + reposts) announcing a NEW Arc House
 // community topic/group that is LIVE right now.
@@ -316,8 +331,17 @@ async function checkCondition(prediction, monitor) {
     const lastScanned = tweets[0] ? { id: tweets[0].id, text: (tweets[0].title ?? '').slice(0, 100), date: tweets[0].pubDate } : null
 
     const newlyFoundIds = []
+    // Track fingerprints already counted this session to avoid counting tweet+repost of same topic as 2
+    const seenFingerprints = new Set()
     for (const tweet of candidateTweets) {
       if (isLiveIntegration(tweet.title ?? '')) {
+        const fp = contentFingerprint(tweet.title ?? '')
+        if (seenFingerprints.has(fp)) {
+          console.log(`    ⏭️  Skipping duplicate integration (same content): ${(tweet.title ?? '').slice(0, 60)}`)
+          newlyFoundIds.push(tweet.id) // mark as seen so we don't re-check it next run
+          continue
+        }
+        seenFingerprints.add(fp)
         newlyFoundIds.push(tweet.id)
         if (!lastMatch) lastMatch = { id: tweet.id, text: (tweet.title ?? '').slice(0, 100), date: tweet.pubDate }
         foundCount++
@@ -364,8 +388,17 @@ async function checkCondition(prediction, monitor) {
     const lastScanned = tweets[0] ? { id: tweets[0].id, text: (tweets[0].title ?? '').slice(0, 100), date: tweets[0].pubDate } : null
 
     const newlyFoundIds = []
+    // Track fingerprints already counted this session to avoid counting tweet+repost of same topic as 2
+    const seenTopicFingerprints = new Set()
     for (const tweet of candidateTweets) {
       if (isNewArcTopic(tweet.title ?? '')) {
+        const fp = contentFingerprint(tweet.title ?? '')
+        if (seenTopicFingerprints.has(fp)) {
+          console.log(`    ⏭️  Skipping duplicate topic (same content): ${(tweet.title ?? '').slice(0, 60)}`)
+          newlyFoundIds.push(tweet.id) // mark as seen so we don't re-check it next run
+          continue
+        }
+        seenTopicFingerprints.add(fp)
         newlyFoundIds.push(tweet.id)
         if (!lastMatch) lastMatch = { id: tweet.id, text: (tweet.title ?? '').slice(0, 100), date: tweet.pubDate }
         foundCount++
