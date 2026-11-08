@@ -312,6 +312,8 @@ async function checkCondition(prediction, monitor) {
     // Empty RSS = no tweets available yet (not a resolver failure — keep green dot)
     const activationTs = activation_timestamp ?? 0
     const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
+    // Track the most recent tweet scanned (whether it matched or not) for status display
+    const lastScanned = tweets[0] ? { id: tweets[0].id, text: (tweets[0].title ?? '').slice(0, 100), date: tweets[0].pubDate } : null
 
     const newlyFoundIds = []
     for (const tweet of candidateTweets) {
@@ -335,7 +337,7 @@ async function checkCondition(prediction, monitor) {
     return {
       triggered,
       currentValue: statusLine,
-      rawData: { found_count: foundCount, target, last_match: lastMatch },
+      rawData: { found_count: foundCount, target, last_match: lastMatch, last_scanned: lastScanned },
       updatedMonitor: {
         ...monitor,
         found_integration_count:    foundCount,
@@ -358,6 +360,8 @@ async function checkCondition(prediction, monitor) {
     const activationTs = activation_timestamp ?? 0
     // Only look at tweets posted after this resolver was activated, not already counted
     const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
+    // Track the most recent tweet scanned (whether it matched or not) for status display
+    const lastScanned = tweets[0] ? { id: tweets[0].id, text: (tweets[0].title ?? '').slice(0, 100), date: tweets[0].pubDate } : null
 
     const newlyFoundIds = []
     for (const tweet of candidateTweets) {
@@ -380,7 +384,7 @@ async function checkCondition(prediction, monitor) {
     return {
       triggered,
       currentValue: statusLine,
-      rawData: { found_count: foundCount, target, last_match: lastMatch },
+      rawData: { found_count: foundCount, target, last_match: lastMatch, last_scanned: lastScanned },
       updatedMonitor: {
         ...monitor,
         found_topic_count:    foundCount,

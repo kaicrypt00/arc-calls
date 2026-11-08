@@ -2207,32 +2207,40 @@ export default function AdminPage() {
                                       const foundCount = (mon.found_integration_count as number) ?? 0
                                       const intTarget  = m.threshold ? parseInt(m.threshold) : 1
                                       const lastMatch  = mon.last_integration_tweet as { text?: string; date?: string } | null
+                                      const lastScanned = (log?.raw_data as Record<string, unknown> | null)?.last_scanned as { text?: string } | null
+                                      const intPct = Math.min(100, Math.round((foundCount / intTarget) * 100))
                                       return (
                                         <div style={{ marginTop: 6 }}>
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                            <span style={{ color: 'var(--accent-bright)', fontSize: 13, fontWeight: 600 }}>
-                                              {foundCount} of {intTarget}
-                                            </span>
-                                            <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
-                                              integrations found
-                                            </span>
-                                          </div>
-                                          {lastMatch?.text ? (
-                                            <div style={{ color: 'var(--text-secondary)', fontSize: 12, fontStyle: 'italic', marginTop: 2 }}>
-                                              Last: {lastMatch.text.slice(0, 70)}
+                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                              <span style={{ color: 'var(--accent-bright)', fontSize: 13, fontWeight: 600 }}>
+                                                {foundCount} of {intTarget}
+                                              </span>
+                                              <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
+                                                integrations found
+                                              </span>
                                             </div>
-                                          ) : (
-                                            <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>No integrations found yet</div>
-                                          )}
+                                            <span style={{ color: 'var(--text-tertiary)', fontSize: 11, fontWeight: 600 }}>{intPct}%</span>
+                                          </div>
                                           {/* mini progress bar */}
-                                          <div style={{ background: 'rgba(54,97,132,0.15)', borderRadius: 4, height: 3, overflow: 'hidden', marginTop: 6 }}>
+                                          <div style={{ background: 'rgba(54,97,132,0.15)', borderRadius: 4, height: 4, overflow: 'hidden', marginBottom: 6 }}>
                                             <div style={{
-                                              width: `${Math.min(100, Math.round((foundCount / intTarget) * 100))}%`,
-                                              height: '100%',
+                                              width: `${intPct}%`, height: '100%',
                                               background: foundCount >= intTarget ? 'var(--accent-bright)' : 'rgba(54,97,132,0.7)',
                                               borderRadius: 4, transition: 'width 0.3s',
                                             }} />
                                           </div>
+                                          {lastMatch?.text ? (
+                                            <div style={{ color: 'var(--yes-color)', fontSize: 12, marginTop: 2 }}>
+                                              ✅ Match: {lastMatch.text.slice(0, 70)}
+                                            </div>
+                                          ) : lastScanned?.text ? (
+                                            <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 2 }}>
+                                              🔍 Monitoring · Last post scanned: "{lastScanned.text.slice(0, 65)}"
+                                            </div>
+                                          ) : (
+                                            <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Monitoring · No posts scanned yet</div>
+                                          )}
                                         </div>
                                       )
                                     }
@@ -2242,29 +2250,38 @@ export default function AdminPage() {
                                       const foundCount  = (mon.found_topic_count as number) ?? 0
                                       const topicTarget = m.threshold ? parseInt(m.threshold) : 1
                                       const lastMatch   = mon.last_topic_tweet as { text?: string; date?: string } | null
+                                      const lastScanned = (log?.raw_data as Record<string, unknown> | null)?.last_scanned as { text?: string } | null
+                                      const topicPct = Math.min(100, Math.round((foundCount / topicTarget) * 100))
                                       return (
                                         <div style={{ marginTop: 6 }}>
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                            <span style={{ color: 'var(--accent-bright)', fontSize: 13, fontWeight: 600 }}>
-                                              {foundCount} of {topicTarget}
-                                            </span>
-                                            <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Arc House topics found</span>
-                                          </div>
-                                          {lastMatch?.text ? (
-                                            <div style={{ color: 'var(--text-secondary)', fontSize: 12, fontStyle: 'italic', marginTop: 2 }}>
-                                              Last: {lastMatch.text.slice(0, 70)}
+                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                              <span style={{ color: 'var(--accent-bright)', fontSize: 13, fontWeight: 600 }}>
+                                                {foundCount} of {topicTarget}
+                                              </span>
+                                              <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Arc House topics found</span>
                                             </div>
-                                          ) : (
-                                            <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>No topics found yet</div>
-                                          )}
-                                          <div style={{ background: 'rgba(54,97,132,0.15)', borderRadius: 4, height: 3, overflow: 'hidden', marginTop: 6 }}>
+                                            <span style={{ color: 'var(--text-tertiary)', fontSize: 11, fontWeight: 600 }}>{topicPct}%</span>
+                                          </div>
+                                          {/* mini progress bar */}
+                                          <div style={{ background: 'rgba(54,97,132,0.15)', borderRadius: 4, height: 4, overflow: 'hidden', marginBottom: 6 }}>
                                             <div style={{
-                                              width: `${Math.min(100, Math.round((foundCount / topicTarget) * 100))}%`,
-                                              height: '100%',
+                                              width: `${topicPct}%`, height: '100%',
                                               background: foundCount >= topicTarget ? 'var(--accent-bright)' : 'rgba(54,97,132,0.7)',
                                               borderRadius: 4, transition: 'width 0.3s',
                                             }} />
                                           </div>
+                                          {lastMatch?.text ? (
+                                            <div style={{ color: 'var(--yes-color)', fontSize: 12, marginTop: 2 }}>
+                                              ✅ Match: {lastMatch.text.slice(0, 70)}
+                                            </div>
+                                          ) : lastScanned?.text ? (
+                                            <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 2 }}>
+                                              🔍 Monitoring · Last post scanned: "{lastScanned.text.slice(0, 65)}"
+                                            </div>
+                                          ) : (
+                                            <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Monitoring · No posts scanned yet</div>
+                                          )}
                                         </div>
                                       )
                                     }

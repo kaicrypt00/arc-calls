@@ -396,20 +396,31 @@ export default function LeaderboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const AGENT_WALLET = '0x50f7067035972795fc9970be26a6489b10065343'
+
   // All entries with at least one call — used for arena-wide stats (includes live bets)
   const allActive = (cachedLeaderboard ?? []).filter(e => Number(e.total_calls ?? 0) > 0)
 
-  // Display list: anyone with calls, sorted by PnL then win-rate then volume
-  const lbData = allActive
+  // Agent 001 entry (always pinned first in display)
+  const agentEntry = allActive.find(e =>
+    e.is_agent === true || e.wallet_address?.toLowerCase() === AGENT_WALLET
+  )
+
+  // Display list: agent always first, then positive-PnL users sorted by PnL desc, negative excluded
+  const positivePnlUsers = allActive
+    .filter(e => {
+      const isAgent = e.is_agent === true || e.wallet_address?.toLowerCase() === AGENT_WALLET
+      return !isAgent && Number(e.total_pnl ?? 0) > 0
+    })
     .sort((a, b) => {
-      const pnlA = Number(a.total_pnl ?? 0)
-      const pnlB = Number(b.total_pnl ?? 0)
-      if (pnlB !== pnlA) return pnlB - pnlA
-      const winRateA = Number(a.win_rate ?? 0)
-      const winRateB = Number(b.win_rate ?? 0)
-      if (winRateB !== winRateA) return winRateB - winRateA
+      const pnlDiff = Number(b.total_pnl ?? 0) - Number(a.total_pnl ?? 0)
+      if (pnlDiff !== 0) return pnlDiff
+      const winRateDiff = Number(b.win_rate ?? 0) - Number(a.win_rate ?? 0)
+      if (winRateDiff !== 0) return winRateDiff
       return Number(b.total_volume ?? 0) - Number(a.total_volume ?? 0)
     })
+
+  const lbData: DbLeaderboard[] = agentEntry ? [agentEntry, ...positivePnlUsers] : positivePnlUsers
   const entries: DbLeaderboard[] = lbData
   const stats: ArenaStats = {
     // Sum volume/calls across ALL active bettors (live + settled), not just the filtered display list
