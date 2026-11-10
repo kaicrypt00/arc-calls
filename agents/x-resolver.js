@@ -69,8 +69,8 @@ async function getMaxFeePerGas() {
 }
 
 // ─── RETRY HELPER ─────────────────────────────────────────────────────────────
-// On API failure: wait delayMs, retry up to maxAttempts times before giving up.
-async function withRetry(fn, maxAttempts = 3, delayMs = 30_000, label = '') {
+// On API failure: wait 2 min, retry up to 5 times before giving up.
+async function withRetry(fn, maxAttempts = 5, delayMs = 120_000, label = '') {
   let lastErr
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
