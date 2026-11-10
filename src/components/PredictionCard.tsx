@@ -11,7 +11,7 @@ import { supabase, type DbPrediction } from '../lib/supabase'
 import { BETTING_POOL_ADDRESS, USDC_ADDRESS, USDC_DECIMALS } from '../constants'
 import { BETTING_POOL_ABI, ERC20_ABI } from '../abis'
 import { EXPLORER_URL } from '../config'
-import { calcOdds, formatCountdown, validateBetAmount } from '../utils/format'
+import { calcOdds, formatCountdown, validateBetAmount, formatPublishDate } from '../utils/format'
 
 function formatBetError(err: unknown): string {
   const raw = (err as Error)?.message || String(err)
@@ -481,6 +481,26 @@ export default function PredictionCard({ prediction: p, onUpdate }: Props) {
             </span>
           )}
         </div>
+
+        {/* Publish date top-right */}
+        {formatPublishDate(p.created_at) && (
+          <div
+            className="font-mono"
+            title="Published"
+            style={{
+              position: 'absolute', top: 14, right: 14,
+              padding: '4px 10px', borderRadius: 999,
+              background: 'rgba(3, 10, 24, 0.72)',
+              border: '1px solid rgba(90, 138, 176, 0.28)',
+              backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+              color: 'rgba(228, 232, 236, 0.85)',
+              fontSize: 11, fontWeight: 600, letterSpacing: '0.04em',
+              whiteSpace: 'nowrap', pointerEvents: 'none',
+            }}
+          >
+            {formatPublishDate(p.created_at)}
+          </div>
+        )}
       </div>
 
       {/* -- Card body -- */}
