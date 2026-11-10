@@ -8,7 +8,7 @@ on:
 jobs:
   resolve:
     runs-on: ubuntu-latest
-    timeout-minutes: 25    # Handles worst-case 5×2min retries
+    timeout-minutes: 15    # 2 attempts × 5min gap + processing headroom
 
     steps:
       - name: Checkout

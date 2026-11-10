@@ -69,8 +69,10 @@ async function getMaxFeePerGas() {
 }
 
 // ─── RETRY HELPER ─────────────────────────────────────────────────────────────
-// On API failure: wait 2 min, retry up to 5 times before giving up.
-async function withRetry(fn, maxAttempts = 5, delayMs = 120_000, label = '') {
+// On fxtwitter blip: wait 5 min, retry once (2 attempts total).
+// fxtwitter has no meaningful rate limit for our usage (~1 req/run).
+// Failures are upstream X/Twitter connection blips — short, not prolonged.
+async function withRetry(fn, maxAttempts = 2, delayMs = 300_000, label = '') {
   let lastErr
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -425,7 +427,7 @@ async function checkCondition(prediction, monitor) {
 
     const tweets = await withRetry(
       () => fetchTweetsViaRss(handle),
-      3, 30_000, `fetchTweetsViaRss(@${handle})`
+      undefined, undefined, `fetchTweetsViaRss(@${handle})`  // 2 attempts, 5min gap
     )
     const activationTs = activation_timestamp ?? 0
     const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
@@ -531,7 +533,7 @@ async function checkCondition(prediction, monitor) {
 
     const tweets = await withRetry(
       () => fetchTweetsViaRss(handle),
-      3, 30_000, `fetchTweetsViaRss(@${handle})`
+      undefined, undefined, `fetchTweetsViaRss(@${handle})`  // 2 attempts, 5min gap
     )
     const activationTs = activation_timestamp ?? 0
     const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
