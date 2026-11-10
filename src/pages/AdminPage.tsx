@@ -2248,9 +2248,14 @@ export default function AdminPage() {
                                               ))}
                                             </div>
                                           )}
-                                          {posts.length === 0 && (lastScanned?.text ? (
+                                          {posts.length === 0 && foundCount > 0 && (
                                             <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 2 }}>
-                                              🔍 Monitoring · Last post: "{lastScanned.text.slice(0, 65)}"
+                                              🔗 Post link will appear after next resolver scan
+                                            </div>
+                                          )}
+                                          {posts.length === 0 && foundCount === 0 && (lastScanned?.text ? (
+                                            <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 2 }}>
+                                              🔍 Monitoring · Last post: &quot;{lastScanned.text.slice(0, 65)}&quot;
                                             </div>
                                           ) : (
                                             <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Monitoring · No posts scanned yet</div>
@@ -2303,9 +2308,14 @@ export default function AdminPage() {
                                               ))}
                                             </div>
                                           )}
-                                          {posts.length === 0 && (lastScanned?.text ? (
+                                          {posts.length === 0 && foundCount > 0 && (
                                             <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 2 }}>
-                                              🔍 Monitoring · Last post: "{lastScanned.text.slice(0, 65)}"
+                                              🔗 Post link will appear after next resolver scan
+                                            </div>
+                                          )}
+                                          {posts.length === 0 && foundCount === 0 && (lastScanned?.text ? (
+                                            <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 2 }}>
+                                              🔍 Monitoring · Last post: &quot;{lastScanned.text.slice(0, 65)}&quot;
                                             </div>
                                           ) : (
                                             <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Monitoring · No posts scanned yet</div>

@@ -153,7 +153,9 @@ function parseRssTweets(xml, handle) {
     const timestamp   = pubDate ? Math.floor(new Date(pubDate).getTime() / 1000) : 0
     const title       = titleMatch ? titleMatch[1].trim() : ''
     // Use description (full body) when available — richer than title, includes full repost text
-    const description = descMatch  ? descMatch[1].trim()  : ''
+    const rawDesc     = descMatch  ? descMatch[1].trim()  : ''
+    // Strip HTML tags from description (fxtwitter wraps text in <p>, <br>, etc.)
+    const description = rawDesc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
     // Combined full text — description tends to have more content on reposts
     const fullText    = description.length > title.length ? description : title
 
