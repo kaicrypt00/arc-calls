@@ -68,6 +68,25 @@ async function getMaxFeePerGas() {
   }
 }
 
+// ─── RETRY HELPER ─────────────────────────────────────────────────────────────
+// On API failure: wait delayMs, retry up to maxAttempts times before giving up.
+async function withRetry(fn, maxAttempts = 3, delayMs = 30_000, label = '') {
+  let lastErr
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastErr = err
+      if (attempt < maxAttempts) {
+        console.warn(`  ♻️  ${label} attempt ${attempt}/${maxAttempts} failed: ${err.message} — retrying in ${delayMs / 1000}s`)
+        await new Promise(r => setTimeout(r, delayMs))
+      }
+    }
+  }
+  console.error(`  ❌ ${label} failed after ${maxAttempts} attempts: ${lastErr.message}`)
+  throw lastErr
+}
+
 // ─── FXTWITTER HELPERS ────────────────────────────────────────────────────────
 const FX_HEADERS = {
   'User-Agent': 'ArcCallsResolver/1.0',
@@ -401,8 +420,13 @@ async function checkCondition(prediction, monitor) {
     const foundNames = new Set(Array.isArray(monitor.found_integration_names) ? monitor.found_integration_names : [])
     let   foundCount = typeof monitor.found_integration_count === 'number' ? monitor.found_integration_count : 0
     let   lastMatch  = monitor.last_integration_tweet ?? null
+    // Post URL history — each confirmed match gets its tweet URL saved for verification
+    const foundPosts = Array.isArray(monitor.found_integration_posts) ? [...monitor.found_integration_posts] : []
 
-    const tweets = await fetchTweetsViaRss(handle)
+    const tweets = await withRetry(
+      () => fetchTweetsViaRss(handle),
+      3, 30_000, `fetchTweetsViaRss(@${handle})`
+    )
     const activationTs = activation_timestamp ?? 0
     const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
     const lastScanned = tweets[0] ? { id: tweets[0].id, text: (tweets[0].fullText ?? tweets[0].title ?? '').slice(0, 100), date: tweets[0].pubDate } : null
@@ -459,6 +483,8 @@ async function checkCondition(prediction, monitor) {
         foundNames.add(entity)
         foundCount++
         if (!lastMatch) lastMatch = { id: tweet.id, text: verifiedText.slice(0, 100), date: tweet.pubDate, entity }
+        // Save tweet URL for admin verification — shows which exact post confirmed this entity
+        foundPosts.push({ url: tweet.url, entity, text: verifiedText.slice(0, 120), date: tweet.pubDate })
         console.log(`    🤝 New integration confirmed: "${entity}" · ${verifiedText.slice(0, 60)}`)
         if (foundCount >= target) break
       }
@@ -479,12 +505,13 @@ async function checkCondition(prediction, monitor) {
     return {
       triggered,
       currentValue: statusLine,
-      rawData: { found_count: foundCount, target, last_match: lastMatch, last_scanned: lastScanned, found_names: [...foundNames] },
+      rawData: { found_count: foundCount, target, last_match: lastMatch, last_scanned: lastScanned, found_names: [...foundNames], found_posts: foundPosts },
       updatedMonitor: {
         ...monitor,
         found_integration_count:     foundCount,
         found_integration_tweet_ids: allFoundIds,
         found_integration_names:     [...foundNames],
+        found_integration_posts:     foundPosts,
         last_integration_tweet:      lastMatch,
       },
     }
@@ -499,8 +526,13 @@ async function checkCondition(prediction, monitor) {
     const foundNames = new Set(Array.isArray(monitor.found_topic_names) ? monitor.found_topic_names : [])
     let   foundCount = typeof monitor.found_topic_count === 'number' ? monitor.found_topic_count : 0
     let   lastMatch  = monitor.last_topic_tweet ?? null
+    // Post URL history — each confirmed match gets its tweet URL saved for verification
+    const foundPosts = Array.isArray(monitor.found_topic_posts) ? [...monitor.found_topic_posts] : []
 
-    const tweets = await fetchTweetsViaRss(handle)
+    const tweets = await withRetry(
+      () => fetchTweetsViaRss(handle),
+      3, 30_000, `fetchTweetsViaRss(@${handle})`
+    )
     const activationTs = activation_timestamp ?? 0
     const candidateTweets = tweets.filter(t => t.timestamp >= activationTs && !foundIds.includes(t.id))
     const lastScanned = tweets[0] ? { id: tweets[0].id, text: (tweets[0].fullText ?? tweets[0].title ?? '').slice(0, 100), date: tweets[0].pubDate } : null
@@ -556,6 +588,8 @@ async function checkCondition(prediction, monitor) {
         foundNames.add(entity)
         foundCount++
         if (!lastMatch) lastMatch = { id: tweet.id, text: verifiedText.slice(0, 100), date: tweet.pubDate, entity }
+        // Save tweet URL for admin verification — shows which exact post confirmed this entity
+        foundPosts.push({ url: tweet.url, entity, text: verifiedText.slice(0, 120), date: tweet.pubDate })
         console.log(`    🏠 New Arc House topic confirmed: "${entity}" · ${verifiedText.slice(0, 60)}`)
         if (foundCount >= target) break
       }
@@ -576,12 +610,13 @@ async function checkCondition(prediction, monitor) {
     return {
       triggered,
       currentValue: statusLine,
-      rawData: { found_count: foundCount, target, last_match: lastMatch, last_scanned: lastScanned, found_names: [...foundNames] },
+      rawData: { found_count: foundCount, target, last_match: lastMatch, last_scanned: lastScanned, found_names: [...foundNames], found_posts: foundPosts },
       updatedMonitor: {
         ...monitor,
         found_topic_count:     foundCount,
         found_topic_tweet_ids: allFoundIds,
         found_topic_names:     [...foundNames],
+        found_topic_posts:     foundPosts,
         last_topic_tweet:      lastMatch,
       },
     }

@@ -75,6 +75,26 @@ async function getMaxFeePerGas() {
   }
 }
 
+// ─── RETRY HELPER ─────────────────────────────────────────────────────────────
+// If Blockscout API is down or rate-limited: wait 2 min, retry up to 5 times.
+// This handles outages without the whole run failing immediately.
+async function withRetry(fn, maxAttempts = 5, delayMs = 120_000, label = '') {
+  let lastErr
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastErr = err
+      if (attempt < maxAttempts) {
+        console.warn(`  ♻️  ${label} attempt ${attempt}/${maxAttempts} failed: ${err.message} — retrying in ${delayMs / 1000}s`)
+        await new Promise(r => setTimeout(r, delayMs))
+      }
+    }
+  }
+  console.error(`  ❌ ${label} failed after ${maxAttempts} attempts: ${lastErr.message}`)
+  throw lastErr
+}
+
 // ─── BLOCKSCOUT HELPERS ───────────────────────────────────────────────────────
 const BS_HEADERS = {
   'User-Agent': 'ArcCallsEcoResolver/1.0',
@@ -114,7 +134,10 @@ async function checkEcoCondition(monitor) {
   const target = parseInt(threshold ?? '0', 10)
 
   if (['total_transactions', 'total_addresses', 'daily_transactions', 'total_blocks'].includes(condition_type)) {
-    const stats = await fetchArcStats()
+    const stats = await withRetry(
+      () => fetchArcStats(),
+      5, 120_000, 'Blockscout /stats'
+    )
 
     const fieldMap = {
       total_transactions: 'total_transactions',
@@ -136,7 +159,10 @@ async function checkEcoCondition(monitor) {
   }
 
   if (condition_type === 'verified_contracts') {
-    const current = await fetchVerifiedContractsCount()
+    const current = await withRetry(
+      () => fetchVerifiedContractsCount(),
+      5, 120_000, 'Blockscout /smart-contracts'
+    )
     const triggered = current >= target
     return {
       triggered,

@@ -2,7 +2,7 @@ name: Arc Calls — X Resolver
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Every hour on the hour (UTC)
+    - cron: '*/30 * * * *'  # Every 30 min — arc-calls is public repo (unlimited Actions minutes)
   workflow_dispatch:       # Manual run button in GitHub Actions UI
 
 jobs:

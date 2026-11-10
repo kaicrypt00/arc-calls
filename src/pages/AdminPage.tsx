@@ -2206,11 +2206,11 @@ export default function AdminPage() {
                                     // new_integration: show found count + last match preview
                                     if (ct === 'new_integration') {
                                       const mon = pred.x_monitor as Record<string, unknown>
-                                      const foundCount = (mon.found_integration_count as number) ?? 0
-                                      const intTarget  = m.threshold ? parseInt(m.threshold) : 1
-                                      const lastMatch  = mon.last_integration_tweet as { text?: string; date?: string } | null
+                                      const foundCount  = (mon.found_integration_count as number) ?? 0
+                                      const intTarget   = m.threshold ? parseInt(m.threshold) : 1
                                       const lastScanned = (log?.raw_data as Record<string, unknown> | null)?.last_scanned as { text?: string } | null
-                                      const intPct = Math.min(100, Math.round((foundCount / intTarget) * 100))
+                                      const intPct      = Math.min(100, Math.round((foundCount / intTarget) * 100))
+                                      const posts       = (mon.found_integration_posts as { url?: string; entity?: string; text?: string; date?: string }[]) ?? []
                                       return (
                                         <div style={{ marginTop: 6 }}>
                                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -2218,13 +2218,10 @@ export default function AdminPage() {
                                               <span style={{ color: 'var(--accent-bright)', fontSize: 13, fontWeight: 600 }}>
                                                 {foundCount} of {intTarget}
                                               </span>
-                                              <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
-                                                integrations found
-                                              </span>
+                                              <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>integrations found</span>
                                             </div>
                                             <span style={{ color: 'var(--text-tertiary)', fontSize: 11, fontWeight: 600 }}>{intPct}%</span>
                                           </div>
-                                          {/* mini progress bar */}
                                           <div style={{ background: 'rgba(54,97,132,0.15)', borderRadius: 4, height: 4, overflow: 'hidden', marginBottom: 6 }}>
                                             <div style={{
                                               width: `${intPct}%`, height: '100%',
@@ -2232,17 +2229,32 @@ export default function AdminPage() {
                                               borderRadius: 4, transition: 'width 0.3s',
                                             }} />
                                           </div>
-                                          {lastMatch?.text ? (
-                                            <div style={{ color: 'var(--yes-color)', fontSize: 12, marginTop: 2 }}>
-                                              ✅ Match: {lastMatch.text.slice(0, 70)}
+                                          {/* Matched post links — numbered, clickable, one per confirmed integration */}
+                                          {posts.length > 0 && (
+                                            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                              {posts.map((p, i) => (
+                                                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                                  <span style={{ color: 'var(--yes-color)', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>✅ #{i + 1}</span>
+                                                  <div style={{ minWidth: 0 }}>
+                                                    {p.url ? (
+                                                      <a href={p.url} target="_blank" rel="noopener noreferrer"
+                                                        style={{ color: 'var(--accent-bright)', fontSize: 11, wordBreak: 'break-all', textDecoration: 'none' }}>
+                                                        {p.url}
+                                                      </a>
+                                                    ) : null}
+                                                    {p.text && <div style={{ color: 'var(--text-tertiary)', fontSize: 11, marginTop: 1 }}>{p.text.slice(0, 80)}</div>}
+                                                  </div>
+                                                </div>
+                                              ))}
                                             </div>
-                                          ) : lastScanned?.text ? (
+                                          )}
+                                          {posts.length === 0 && (lastScanned?.text ? (
                                             <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 2 }}>
-                                              🔍 Monitoring · Last post scanned: "{lastScanned.text.slice(0, 65)}"
+                                              🔍 Monitoring · Last post: "{lastScanned.text.slice(0, 65)}"
                                             </div>
                                           ) : (
                                             <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Monitoring · No posts scanned yet</div>
-                                          )}
+                                          ))}
                                         </div>
                                       )
                                     }
@@ -2251,9 +2263,9 @@ export default function AdminPage() {
                                       const mon = pred.x_monitor as Record<string, unknown>
                                       const foundCount  = (mon.found_topic_count as number) ?? 0
                                       const topicTarget = m.threshold ? parseInt(m.threshold) : 1
-                                      const lastMatch   = mon.last_topic_tweet as { text?: string; date?: string } | null
                                       const lastScanned = (log?.raw_data as Record<string, unknown> | null)?.last_scanned as { text?: string } | null
-                                      const topicPct = Math.min(100, Math.round((foundCount / topicTarget) * 100))
+                                      const topicPct    = Math.min(100, Math.round((foundCount / topicTarget) * 100))
+                                      const posts       = (mon.found_topic_posts as { url?: string; entity?: string; text?: string; date?: string }[]) ?? []
                                       return (
                                         <div style={{ marginTop: 6 }}>
                                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -2265,7 +2277,6 @@ export default function AdminPage() {
                                             </div>
                                             <span style={{ color: 'var(--text-tertiary)', fontSize: 11, fontWeight: 600 }}>{topicPct}%</span>
                                           </div>
-                                          {/* mini progress bar */}
                                           <div style={{ background: 'rgba(54,97,132,0.15)', borderRadius: 4, height: 4, overflow: 'hidden', marginBottom: 6 }}>
                                             <div style={{
                                               width: `${topicPct}%`, height: '100%',
@@ -2273,17 +2284,32 @@ export default function AdminPage() {
                                               borderRadius: 4, transition: 'width 0.3s',
                                             }} />
                                           </div>
-                                          {lastMatch?.text ? (
-                                            <div style={{ color: 'var(--yes-color)', fontSize: 12, marginTop: 2 }}>
-                                              ✅ Match: {lastMatch.text.slice(0, 70)}
+                                          {/* Matched post links — numbered, clickable, one per confirmed topic */}
+                                          {posts.length > 0 && (
+                                            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                              {posts.map((p, i) => (
+                                                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                                  <span style={{ color: 'var(--yes-color)', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>✅ #{i + 1}</span>
+                                                  <div style={{ minWidth: 0 }}>
+                                                    {p.url ? (
+                                                      <a href={p.url} target="_blank" rel="noopener noreferrer"
+                                                        style={{ color: 'var(--accent-bright)', fontSize: 11, wordBreak: 'break-all', textDecoration: 'none' }}>
+                                                        {p.url}
+                                                      </a>
+                                                    ) : null}
+                                                    {p.text && <div style={{ color: 'var(--text-tertiary)', fontSize: 11, marginTop: 1 }}>{p.text.slice(0, 80)}</div>}
+                                                  </div>
+                                                </div>
+                                              ))}
                                             </div>
-                                          ) : lastScanned?.text ? (
+                                          )}
+                                          {posts.length === 0 && (lastScanned?.text ? (
                                             <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 2 }}>
-                                              🔍 Monitoring · Last post scanned: "{lastScanned.text.slice(0, 65)}"
+                                              🔍 Monitoring · Last post: "{lastScanned.text.slice(0, 65)}"
                                             </div>
                                           ) : (
                                             <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Monitoring · No posts scanned yet</div>
-                                          )}
+                                          ))}
                                         </div>
                                       )
                                     }
