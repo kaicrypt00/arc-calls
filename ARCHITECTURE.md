@@ -353,9 +353,11 @@ Admin fills Create Prediction form in AdminPage
 | `VITE_BETTING_POOL_ADDRESS` | yes | BettingPool contract address |
 | `VITE_ACHIEVEMENT_REGISTRY_ADDRESS` | yes | AchievementRegistry contract address |
 | `VITE_POLL_REGISTRY_ADDRESS` | yes | PollRegistry contract address |
-| `RPC_PROXY_BASE_URL` | no | Arc Studio RPC proxy (optional outside Arc Studio) |
-| `RPC_PROXY_TOKEN` | no | Arc Studio RPC proxy token |
-| `RPC_PROXY_CHAINS` | no | Arc Studio proxy chain keys |
+| `RPC_PROXY_BASE_URL` | **Arc Studio only** | Auto-injected by Arc Studio. Routes RPC calls through Arc Studio's managed proxy. Not needed outside Arc Studio — the app falls back to `https://rpc.mainnet.arc.io` automatically. |
+| `RPC_PROXY_TOKEN` | **Arc Studio only** | Auth token for the Arc Studio RPC proxy. Auto-injected. Never set manually. |
+| `RPC_PROXY_CHAINS` | **Arc Studio only** | Comma-separated chain keys for the Arc Studio proxy. Auto-injected. Never set manually. |
+
+> **Built with Arc Studio:** This project was developed inside [Arc Studio](https://studio.arc.io). The `RPC_PROXY_*` vars are managed entirely by Arc Studio — you never touch them. When running locally or on Vercel, they are simply absent and the app connects directly to the Arc Mainnet RPC.
 
 ### GitHub Actions Secrets
 
