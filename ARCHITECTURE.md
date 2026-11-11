@@ -34,8 +34,8 @@ Arc Calls is a community prediction market platform built on Arc Mainnet where U
     │ x_monitor  │        │                         │
     │  _logs     │◄───────┤ agent-bet.yml  (8 AM)   │
     └────────────┘        │ agent-claim.yml (8 PM)  │
-                          │ agent-setup.yml (once)  │
-                          │ x-resolver.yml (hourly) │
+                          │ agent-setup.yml (manual, once)  │
+                          │ x-resolver.yml  (every 30 min) │
                           └─────────────────────────┘
 ```
 
@@ -229,7 +229,7 @@ User clicks YES / NO on a PredictionCard
 ## Data Flow — Settling a Market
 
 ```
-Option A — X Resolver (automated, hourly):
+Option A — X Resolver (automated, every 30 min):
   x-resolver.js fetches predictions with x_monitor JSONB config
     → Pulls tweets via fxtwitter API for configured X accounts
     → Evaluates 9 condition types against tweet data
@@ -280,23 +280,32 @@ Admin fills Create Prediction form in AdminPage
 - **Flow:** Call `mintProfile` for agent wallet → INSERT into Supabase profiles + leaderboard rows
 
 ### X Resolver (`agents/x-resolver.js`)
-- **Workflow:** `x-resolver.yml` — hourly
-- **Condition types:** `price_above`, `price_below`, `price_reaches`, `mentions_keyword`, `mentions_count`, `retweet_count`, `account_posts`, `account_mentions`, `custom_regex`
-- **Data source:** fxtwitter.com API (no auth required)
+- **Workflow:** `x-resolver.yml` — every 30 minutes (public repo = unlimited Actions minutes)
+- **Condition types:** `new_integration`, `new_topic`, `price_above`, `price_below`, `price_reaches`, `mentions_keyword`, `mentions_count`, `retweet_count`, `account_posts`, `account_mentions`, `custom_regex`
+- **Data source:** fxtwitter.com RSS feed (no X API key required)
+- **Retry:** 2 attempts, 5 min gap — protects against transient X/Twitter upstream blips
+- **Post URL history:** Matching tweet URLs saved to Supabase for admin verification
 - **Settlement:** `BettingPool.declareWinner(id, side)` or `lockBetting(id)` depending on condition result
+
+### Ecosystem Resolver (`agents/ecosystem-resolver.js`)
+- **Workflow:** `ecosystem-resolver.yml` — every hour
+- **Data source:** Blockscout API (Arc Mainnet explorer) for live on-chain metrics
+- **Metrics read:** Total transaction count, verified smart contract count
+- **Retry:** 5 attempts, 2 min gap — handles Blockscout API outages gracefully
+- **Settlement:** `BettingPool.declareWinner(id, YES)` when target threshold is reached
 
 ### Secrets Required
 
 | Secret | Workflows |
 |---|---|
-| `AGENT_PRIVATE_KEY` / `AGENT_WALLET_KEY` | agent-bet, agent-claim, agent-setup |
+| `AGENT_WALLET_KEY` | agent-bet, agent-claim, agent-setup |
 | `OPENROUTER_API_KEY` | agent-bet |
 | `SUPABASE_URL` | all |
 | `SUPABASE_SERVICE_ROLE_KEY` | all |
-| `SUPABASE_ANON_KEY` | x-resolver |
-| `BETTING_POOL_ADDRESS` | agent-bet, agent-claim, agent-setup |
-| `PROFILE_REGISTRY_ADDRESS` | agent-setup |
-| `RESOLVER_ADMIN_KEY` | x-resolver |
+| `SUPABASE_ANON_KEY` | x-resolver, ecosystem-resolver |
+| `BETTING_POOL_ADDRESS` | all |
+| `BLOCKSCOUT_API_KEY` | ecosystem-resolver |
+| `RESOLVER_ADMIN_KEY` | x-resolver, ecosystem-resolver |
 
 ---
 
@@ -323,10 +332,10 @@ Admin fills Create Prediction form in AdminPage
 
 | Component | Host | Notes |
 |---|---|---|
-| Frontend | Vercel | Auto-deploys on push to `master`. SPA rewrite via `vercel.json`. |
+| Frontend | Vercel | Auto-deploys on push to `main`. SPA rewrite via `vercel.json`. |
 | Smart contracts | Arc Mainnet | Deployed, immutable. Addresses in `AGENTS.md`. |
 | AI Agent + Claim | GitHub Actions | `agent/` directory, own `package.json`. Cron + manual trigger. |
-| X Resolver | GitHub Actions | `agents/` directory. Hourly cron. |
+| X Resolver | GitHub Actions | `agents/` directory. Every 30 min (public repo = unlimited minutes). |
 | Database | Supabase | Managed Postgres. Storage buckets for media. |
 
 ---

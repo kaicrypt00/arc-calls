@@ -15,7 +15,7 @@ Arc Calls lets users stake USDC on YES or NO outcomes for real Arc community eve
 - **Onchain Badges** — Four achievement badges (Starter, Caller, Oracle, OG) earned by placing bets. Gas only to mint.
 - **Leaderboard** — Live rankings by total P&L across all callers.
 - **AI Agent (ArcBot)** — Autonomous agent that places 0.1 USDC bets daily at 8 AM UTC and claims winnings at 8 PM UTC. Runs via GitHub Actions. Wallet: `0x50f7067035972795fc9970be26a6489b10065343`.
-- **X Resolver** — Monitors X (Twitter) accounts for real-world outcomes and auto-settles markets. Runs hourly via GitHub Actions. Supports 9 condition types.
+- **X Resolver** — Monitors X (Twitter) accounts for real-world outcomes and auto-settles markets. Runs every 30 min via GitHub Actions. Supports 11 condition types.
 - **Session Wallet** — Secondary wallet derived from your main wallet signature. Eliminates MetaMask popups on every bet.
 
 ---
@@ -122,22 +122,27 @@ Both agents live in `agent/` and run via GitHub Actions. They require their own 
 - **What it does:** Mints an onchain profile for the agent wallet and inserts its Supabase profile row.
 
 ### X Resolver (`x-resolver.yml`)
-- **Schedule:** Hourly
+- **Schedule:** Every 30 minutes (public repo — unlimited Actions minutes)
 - **Script:** `agents/x-resolver.js`
-- **What it does:** Fetches predictions with `x_monitor` JSONB config from Supabase, pulls latest tweets via fxtwitter API, evaluates 9 condition types (`price_above`, `price_below`, `price_reaches`, `mentions_keyword`, `mentions_count`, `retweet_count`, `account_posts`, `account_mentions`, `custom_regex`), calls `BettingPool.declareWinner` or `lockBetting` when a condition is met, logs results to `x_monitor_logs`.
+- **What it does:** Fetches predictions with `x_monitor` JSONB config from Supabase, pulls latest tweets via fxtwitter RSS (no X API key needed), evaluates 11 condition types, saves matching tweet URLs to Supabase, calls `BettingPool.declareWinner` or `lockBetting` when a condition is met, logs results to `x_monitor_logs`. Retries twice with a 5 min gap on RSS failure.
+
+### Ecosystem Resolver (`ecosystem-resolver.yml`)
+- **Schedule:** Every hour
+- **Script:** `agents/ecosystem-resolver.js`
+- **What it does:** Reads live Arc Mainnet on-chain metrics (total transactions, verified smart contracts) via the Blockscout API and auto-settles prediction markets when thresholds are reached. Retries up to 5 times with a 2 min gap on API failure.
 
 ### GitHub Secrets Required
 
 | Secret | Used by |
 |---|---|
-| `AGENT_PRIVATE_KEY` (or `AGENT_WALLET_KEY`) | All agent workflows |
+| `AGENT_WALLET_KEY` | All agent workflows |
 | `OPENROUTER_API_KEY` | agent-bet only |
-| `SUPABASE_URL` | All agent workflows |
-| `SUPABASE_SERVICE_ROLE_KEY` | All agent workflows |
-| `SUPABASE_ANON_KEY` | x-resolver |
-| `BETTING_POOL_ADDRESS` | agent-bet, agent-claim, agent-setup |
-| `PROFILE_REGISTRY_ADDRESS` | agent-setup only |
-| `RESOLVER_ADMIN_KEY` | x-resolver |
+| `SUPABASE_URL` | All workflows |
+| `SUPABASE_SERVICE_ROLE_KEY` | All workflows |
+| `SUPABASE_ANON_KEY` | x-resolver, ecosystem-resolver |
+| `BETTING_POOL_ADDRESS` | All workflows |
+| `RESOLVER_ADMIN_KEY` | x-resolver, ecosystem-resolver |
+| `BLOCKSCOUT_API_KEY` | ecosystem-resolver |
 
 ---
 
